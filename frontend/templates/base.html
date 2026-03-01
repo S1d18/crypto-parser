@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Trading Platform{% endblock %}</title>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block extra_css %}{% endblock %}
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+</head>
+<body>
+    <!-- Layout: Sidebar + Content -->
+    <div class="layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- Logo -->
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i data-lucide="trending-up"></i>
+                    <span>Trading Platform</span>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="sidebar-nav">
+                <!-- Watchlists для каждой монеты -->
+                <div class="nav-section">
+                    <div class="nav-section-title">Watchlists</div>
+                    <a href="/watchlist/btc" class="nav-item" data-symbol="btc">
+                        <i data-lucide="bitcoin"></i>
+                        <span>BTC (<span class="coin-count" data-coin="BTC">...</span>)</span>
+                    </a>
+                    <a href="/watchlist/eth" class="nav-item" data-symbol="eth">
+                        <i data-lucide="hexagon"></i>
+                        <span>ETH (<span class="coin-count" data-coin="ETH">...</span>)</span>
+                    </a>
+                    <a href="/watchlist/sol" class="nav-item" data-symbol="sol">
+                        <i data-lucide="sun"></i>
+                        <span>SOL (<span class="coin-count" data-coin="SOL">...</span>)</span>
+                    </a>
+                    <a href="/watchlist/ltc" class="nav-item" data-symbol="ltc">
+                        <i data-lucide="coins"></i>
+                        <span>LTC (<span class="coin-count" data-coin="LTC">...</span>)</span>
+                    </a>
+                    <a href="/watchlist/ton" class="nav-item" data-symbol="ton">
+                        <i data-lucide="diamond"></i>
+                        <span>TON (<span class="coin-count" data-coin="TON">...</span>)</span>
+                    </a>
+                </div>
+
+                <!-- Остальные разделы -->
+                <div class="nav-section">
+                    <div class="nav-section-title">Management</div>
+                    <a href="/analytics" class="nav-item">
+                        <i data-lucide="bar-chart-2"></i>
+                        <span>Analytics</span>
+                    </a>
+                    <a href="/positions" class="nav-item">
+                        <i data-lucide="briefcase"></i>
+                        <span>Positions</span>
+                    </a>
+                    <a href="/history" class="nav-item">
+                        <i data-lucide="clock"></i>
+                        <span>History</span>
+                    </a>
+                    <a href="/strategies" class="nav-item">
+                        <i data-lucide="library"></i>
+                        <span>Strategies</span>
+                    </a>
+                </div>
+            </nav>
+
+            <!-- Status -->
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="dot online" id="connection-status"></span>
+                    <span id="connection-text">Connected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+
+    <!-- Lightweight Charts (если скачан локально, иначе CDN) -->
+    <script src="{{ url_for('static', filename='vendor/lightweight-charts.standalone.production.js') }}"
+            onerror="this.onerror=null; this.src='https://unpkg.com/lightweight-charts@latest/dist/lightweight-charts.standalone.production.js'"></script>
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+
+    <!-- Base JavaScript -->
+    <script>
+        // Инициализация Lucide Icons
+        lucide.createIcons();
+
+        // Активация текущей страницы в sidebar
+        document.addEventListener('DOMContentLoaded', function() {
+            // Определить текущую страницу по URL
+            const path = window.location.pathname;
+            const navItems = document.querySelectorAll('.nav-item');
+
+            navItems.forEach(item => {
+                const href = item.getAttribute('href');
+
+                // Точное совпадение или главная страница
+                if (href === path || (path === '/' && href === '/')) {
+                    item.classList.add('active');
+                }
+            });
+
+            // Загрузить количество стратегий для sidebar
+            fetch('/api/strategies/counts')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        document.querySelectorAll('.coin-count').forEach(el => {
+                            const coin = el.dataset.coin;
+                            el.textContent = data.counts[coin] || 0;
+                        });
+                    }
+                })
+                .catch(() => {});
+        });
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

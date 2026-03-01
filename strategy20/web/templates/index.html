@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Paper Trading — All Strategies{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>20 Paper Strategies</h1>
+    <div class="header-stats" id="header-stats"></div>
+</div>
+<div id="strategies-container"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const GROUP_LABELS = {
+    scalping: 'Scalping (5m, 15m)',
+    intraday: 'Intraday (30m, 1h)',
+    swing: 'Swing (2h, 4h, 6h)',
+    position: 'Position (12h, 1d)',
+};
+
+function fmt(v, decimals = 2) {
+    if (v === null || v === undefined || v === 0) return '-';
+    return v.toFixed(decimals);
+}
+
+function fmtPnl(v, decimals = 2) {
+    if (v === null || v === undefined) return '-';
+    if (v === 0) return '-';
+    return (v >= 0 ? '+' : '') + v.toFixed(decimals);
+}
+
+function fmtPrice(v) {
+    if (v === null || v === undefined) return '-';
+    if (v >= 1000) return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    return v.toFixed(2);
+}
+
+function fmtTime(isoStr) {
+    if (!isoStr) return '-';
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffH = Math.floor(diffMs / 3600000);
+    const diffM = Math.floor((diffMs % 3600000) / 60000);
+    if (diffH > 24) {
+        const days = Math.floor(diffH / 24);
+        return days + 'd ago';
+    }
+    if (diffH > 0) return diffH + 'h ' + diffM + 'm';
+    return diffM + 'm ago';
+}
+
+function renderHeaderStats(data) {
+    const container = document.getElementById('header-stats');
+    const totalTrades = data.reduce((s, d) => s + d.total_trades, 0);
+    const totalPnl = data.reduce((s, d) => s + d.total_pnl, 0);
+    const openCount = data.filter(d => d.has_open_position).length;
+    const currentPrice = data.length > 0 ? data[0].current_price : null;
+    const pnlClass = totalPnl > 0 ? 'positive' : totalPnl < 0 ? 'negative' : '';
+
+    container.innerHTML = `
+        <div class="header-stat">
+            <span class="header-stat-label">BTC Price</span>
+            <span class="header-stat-value">${currentPrice ? '$' + currentPrice.toLocaleString() : '-'}</span>
+        </div>
+        <div class="header-stat">
+            <span class="header-stat-label">Total Trades</span>
+            <span class="header-stat-value">${totalTrades}</span>
+        </div>
+        <div class="header-stat">
+            <span class="header-stat-label">Total PnL</span>
+            <span class="header-stat-value ${pnlClass}">${fmtPnl(totalPnl)}</span>
+        </div>
+        <div class="header-stat">
+            <span class="header-stat-label">Open Positions</span>
+            <span class="header-stat-value">${openCount} / ${data.length}</span>
+        </div>
+    `;
+}
+
+function renderStrategies(data) {
+    const container = document.getElementById('strategies-container');
+    container.innerHTML = '';
+
+    renderHeaderStats(data);
+
+    const groups = {};
+    data.forEach(s => {
+        if (!groups[s.group]) groups[s.group] = [];
+        groups[s.group].push(s);
+    });
+
+    for (const [group, strategies] of Object.entries(groups)) {
+        const section = document.createElement('div');
+        section.className = 'group-section';
+
+        const groupPnl = strategies.reduce((s, d) => s + d.total_pnl, 0);
+        const groupOpen = strategies.filter(d => d.has_open_position).length;
+        const groupPnlClass = groupPnl > 0 ? 'positive' : groupPnl < 0 ? 'negative' : '';
+        const groupMeta = groupOpen > 0 ? ` &middot; <span class="group-open-count">${groupOpen} open</span>` : '';
+
+        section.innerHTML = `
+            <h2 class="group-title">
+                ${GROUP_LABELS[group] || group}
+                <span class="group-pnl ${groupPnlClass}">${fmtPnl(groupPnl)}</span>
+                ${groupMeta}
+            </h2>
+        `;
+
+        const table = document.createElement('table');
+        table.className = 'strat-table';
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Strategy</th>
+                    <th>TF</th>
+                    <th>Dir</th>
+                    <th>ST</th>
+                    <th>SL%</th>
+                    <th>Trades</th>
+                    <th>W/L</th>
+                    <th>WR%</th>
+                    <th>PnL</th>
+                    <th>PnL%</th>
+                    <th>PF</th>
+                    <th>Position</th>
+                    <th>Entry$</th>
+                    <th>Entry Price</th>
+                    <th>SL Price</th>
+                    <th>uPnL</th>
+                    <th>Hold</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+        const tbody = table.querySelector('tbody');
+
+        strategies.forEach(s => {
+            const hasTrades = s.total_trades > 0;
+            const pnlClass = s.total_pnl > 0 ? 'positive' : s.total_pnl < 0 ? 'negative' : '';
+            const dirIcon = s.direction === 'long' ? '&#9650;' : s.direction === 'short' ? '&#9660;' : '&#9670;';
+            const dirClass = s.direction === 'long' ? 'dir-long' : s.direction === 'short' ? 'dir-short' : 'dir-both';
+
+            // Position badge
+            let positionBadge = '<span class="pos-dash">-</span>';
+            if (s.has_open_position) {
+                const posLabel = s.open_side === 'buy' ? 'LONG' : 'SHORT';
+                const posClass = s.open_side === 'buy' ? 'pos-long' : 'pos-short';
+                positionBadge = `<span class="pos-badge ${posClass}">${posLabel}</span>`;
+            }
+
+            // Unrealized PnL
+            let upnlHtml = '-';
+            if (s.open_pnl_live !== null) {
+                const upnlClass = s.open_pnl_live > 0 ? 'positive' : s.open_pnl_live < 0 ? 'negative' : '';
+                upnlHtml = `<span class="${upnlClass}">${fmtPnl(s.open_pnl_live)}</span>`;
+                if (s.open_pnl_live_pct !== null) {
+                    upnlHtml += `<br><small class="${upnlClass}">${fmtPnl(s.open_pnl_live_pct)}%</small>`;
+                }
+            }
+
+            const tr = document.createElement('tr');
+            tr.className = 'strat-row' + (s.has_open_position ? ' row-in-position' : '');
+            tr.onclick = () => window.location.href = `/strategy/${s.strategy_id}`;
+            tr.innerHTML = `
+                <td class="strat-name">${s.strategy_id}</td>
+                <td>${s.timeframe}</td>
+                <td class="${dirClass}">${dirIcon}</td>
+                <td>${s.st_period}/${s.st_multiplier}</td>
+                <td>${s.sl_percent}%</td>
+                <td>${hasTrades ? s.total_trades : '-'}</td>
+                <td>${hasTrades ? s.wins + '/' + s.losses : '-'}</td>
+                <td>${hasTrades ? s.win_rate.toFixed(1) + '%' : '-'}</td>
+                <td class="${pnlClass}">${hasTrades ? fmtPnl(s.total_pnl) : '-'}</td>
+                <td class="${pnlClass}">${hasTrades ? fmtPnl(s.total_pnl_pct) + '%' : '-'}</td>
+                <td>${hasTrades ? fmt(s.profit_factor) : '-'}</td>
+                <td>${positionBadge}</td>
+                <td>${s.has_open_position ? '$' + s.virtual_balance.toLocaleString() : '-'}</td>
+                <td>${fmtPrice(s.open_entry_price)}</td>
+                <td>${fmtPrice(s.open_sl_price)}</td>
+                <td>${upnlHtml}</td>
+                <td class="hold-time">${fmtTime(s.open_opened_at)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        section.appendChild(table);
+        container.appendChild(section);
+    }
+}
+
+function loadStrategies() {
+    fetch('/api/strategies')
+        .then(r => r.json())
+        .then(renderStrategies)
+        .catch(e => console.error('Failed to load strategies:', e));
+}
+
+loadStrategies();
+setInterval(loadStrategies, 30000);
+</script>
+{% endblock %}

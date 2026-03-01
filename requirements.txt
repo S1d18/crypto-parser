@@ -1,0 +1,24 @@
+# Trading & Exchange
+ccxt>=4.0
+
+# Data & Math
+numpy
+pandas
+
+# Configuration
+python-dotenv
+
+# Notifications
+requests
+
+# Visualization
+matplotlib
+
+# Web Framework
+flask>=3.0
+flask-socketio>=5.3
+flask-cors>=4.0
+python-socketio>=5.11
+
+# WebSocket client support
+eventlet>=0.33

@@ -1,0 +1,61 @@
+# Environment
+.env
+.env.local
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Данные и БД
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Логи
+*.log
+logs/
+bot.log
+
+# Архивы и бэкапы
+_archived/
+backups/
+*.backup
+
+# Секретные ключи
+*.key
+*.pem
+*.crt
+*.cer
+secrets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Playwright MCP
+.playwright-mcp/
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Screenshots & test data
+*.png
+*.jpg
+*.jpeg
+*_test.json
+
+# Claude Code
+.claude/
