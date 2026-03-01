@@ -1,0 +1,652 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - Trading Platform{% endblock %}
+
+{% block content %}
+<div data-page="analytics">
+    <!-- Header -->
+    <div style="padding: var(--spacing-xl); background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+        <h1>Analytics</h1>
+        <p class="text-muted" style="margin: 0;">Аналитика по всем стратегиям</p>
+    </div>
+
+    <!-- Tabs -->
+    <div class="analytics-tabs">
+        <button class="atab active" data-tab="dashboard">Dashboard</button>
+        <button class="atab" data-tab="heatmap">Heatmap</button>
+        <button class="atab" data-tab="rating">Rating</button>
+        <button class="atab" data-tab="groups">Groups</button>
+    </div>
+
+    <!-- Global Filters -->
+    <div class="filters-bar" id="global-filters">
+        <div class="filter-group">
+            <label>Монета:</label>
+            <select id="f-symbol">
+                <option value="">Все</option>
+                <option value="BTC">BTC</option>
+                <option value="ETH">ETH</option>
+                <option value="SOL">SOL</option>
+                <option value="LTC">LTC</option>
+                <option value="TON">TON</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Направление:</label>
+            <select id="f-direction">
+                <option value="">Все</option>
+                <option value="long">Long</option>
+                <option value="short">Short</option>
+                <option value="both">Both</option>
+            </select>
+        </div>
+        <div class="filter-group" id="fg-timeframe" style="display:none;">
+            <label>Timeframe:</label>
+            <select id="f-timeframe">
+                <option value="">Все</option>
+                <option value="1m">1m</option><option value="3m">3m</option>
+                <option value="5m">5m</option><option value="15m">15m</option>
+                <option value="30m">30m</option><option value="1h">1h</option>
+                <option value="2h">2h</option><option value="4h">4h</option>
+                <option value="6h">6h</option><option value="12h">12h</option>
+                <option value="1d">1d</option>
+            </select>
+        </div>
+        <!-- Rating-specific filters -->
+        <div class="filter-group" id="fg-mintrades" style="display:none;">
+            <label>Min сделок:</label>
+            <select id="f-mintrades">
+                <option value="1">1+</option>
+                <option value="3" selected>3+</option>
+                <option value="5">5+</option>
+                <option value="10">10+</option>
+                <option value="20">20+</option>
+            </select>
+        </div>
+        <div class="filter-group" id="fg-limit" style="display:none;">
+            <label>Показать:</label>
+            <select id="f-limit">
+                <option value="10">Top 10</option>
+                <option value="25" selected>Top 25</option>
+                <option value="50">Top 50</option>
+                <option value="100">Top 100</option>
+            </select>
+        </div>
+        <div class="filter-group" id="fg-groupby" style="display:none;">
+            <label>Группировка:</label>
+            <select id="f-groupby">
+                <option value="timeframe">По таймфрейму</option>
+                <option value="direction">По направлению</option>
+                <option value="symbol">По монете</option>
+                <option value="tf_direction">TF + направление</option>
+                <option value="symbol_tf">Монета + TF</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading-state" style="text-align: center; padding: 3rem;">
+        <i data-lucide="loader" style="width: 48px; height: 48px; animation: spin 1s linear infinite;"></i>
+        <p class="text-muted" style="margin-top: 1rem;">Загрузка аналитики...</p>
+    </div>
+
+    <!-- ===================== TAB: Dashboard ===================== -->
+    <div id="tab-dashboard" class="tab-content" style="display:none; padding: var(--spacing-xl);">
+        <!-- Summary Cards -->
+        <div class="a-cards" id="dash-summary"></div>
+
+        <!-- Charts Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+            <div class="chart-box">
+                <h3>PnL по монетам</h3>
+                <canvas id="chart-coin" height="250"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>PnL по таймфреймам</h3>
+                <canvas id="chart-tf" height="250"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>PnL по направлению</h3>
+                <canvas id="chart-dir" height="250"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>Распределение Win Rate</h3>
+                <canvas id="chart-wr" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== TAB: Heatmap ===================== -->
+    <div id="tab-heatmap" class="tab-content" style="display:none; padding: var(--spacing-xl);">
+        <h2 style="margin-bottom: 1rem;">Heatmap: Avg PnL по параметрам Supertrend</h2>
+        <p class="text-muted" style="margin-bottom: 1.5rem;">Строки = st_period, Столбцы = st_multiplier. Цвет = средний PnL стратегий.</p>
+        <div id="heatmap-container"></div>
+    </div>
+
+    <!-- ===================== TAB: Rating ===================== -->
+    <div id="tab-rating" class="tab-content" style="display:none; padding: var(--spacing-xl);">
+        <table id="rating-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Стратегия</th>
+                    <th>Монета</th>
+                    <th>TF</th>
+                    <th>Dir</th>
+                    <th class="text-right sortable" data-sort="total_pnl">PnL ↓</th>
+                    <th class="text-right sortable" data-sort="win_rate">WR%</th>
+                    <th class="text-right sortable" data-sort="profit_factor">PF</th>
+                    <th class="text-right sortable" data-sort="trades">Сделок</th>
+                    <th class="text-right sortable" data-sort="avg_pnl">Avg PnL</th>
+                    <th>Поз.</th>
+                </tr>
+            </thead>
+            <tbody id="rating-list"></tbody>
+        </table>
+    </div>
+
+    <!-- ===================== TAB: Groups ===================== -->
+    <div id="tab-groups" class="tab-content" style="display:none; padding: var(--spacing-xl);">
+        <table id="groups-table">
+            <thead>
+                <tr>
+                    <th>Группа</th>
+                    <th class="text-right">Стратегий</th>
+                    <th class="text-right">Avg PnL</th>
+                    <th class="text-right">Sum PnL</th>
+                    <th class="text-right">Avg WR%</th>
+                    <th class="text-right">PF</th>
+                    <th class="text-right">Всего сделок</th>
+                    <th class="text-right">Прибыльных</th>
+                    <th class="text-right">% приб.</th>
+                </tr>
+            </thead>
+            <tbody id="groups-list"></tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.analytics-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 var(--spacing-xl);
+    background: var(--bg-secondary);
+}
+.atab {
+    padding: 0.75rem 1.5rem;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+.atab:hover { color: var(--text-primary); }
+.atab.active {
+    color: var(--accent, #3b82f6);
+    border-bottom-color: var(--accent, #3b82f6);
+    font-weight: 600;
+}
+
+.a-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+}
+.a-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    text-align: center;
+}
+.a-card-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.a-card-value { font-size: 1.3rem; font-weight: 700; margin-top: 0.2rem; }
+
+.chart-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+}
+.chart-box h3 { font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--text-muted); }
+
+/* Heatmap */
+.heatmap-grid {
+    display: grid;
+    gap: 3px;
+    max-width: 100%;
+}
+.hm-cell {
+    padding: 0.5rem 0.25rem;
+    text-align: center;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s;
+    min-height: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.hm-cell:hover { transform: scale(1.05); z-index: 1; }
+.hm-cell .hm-val { font-size: 0.8rem; }
+.hm-cell .hm-sub { font-size: 0.6rem; opacity: 0.7; margin-top: 2px; }
+.hm-header {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 0.4rem;
+}
+
+/* Sortable */
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { color: var(--accent, #3b82f6); }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+// ============================================================
+// State
+// ============================================================
+var currentTab = 'dashboard';
+var charts = {};
+var ratingSort = 'total_pnl';
+var ratingSortDir = 'desc';
+
+document.addEventListener('DOMContentLoaded', function() {
+    setupTabs();
+    setupFilters();
+    loadTab('dashboard');
+    lucide.createIcons();
+});
+
+// ============================================================
+// Tabs
+// ============================================================
+function setupTabs() {
+    document.querySelectorAll('.atab').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.atab').forEach(function(b) { b.classList.remove('active'); });
+            this.classList.add('active');
+            currentTab = this.dataset.tab;
+            loadTab(currentTab);
+        });
+    });
+}
+
+function loadTab(tab) {
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(function(el) { el.style.display = 'none'; });
+
+    // Show/hide tab-specific filters
+    document.getElementById('fg-timeframe').style.display = (tab === 'heatmap' || tab === 'rating') ? '' : 'none';
+    document.getElementById('fg-mintrades').style.display = tab === 'rating' ? '' : 'none';
+    document.getElementById('fg-limit').style.display = tab === 'rating' ? '' : 'none';
+    document.getElementById('fg-groupby').style.display = tab === 'groups' ? '' : 'none';
+
+    showLoading();
+
+    if (tab === 'dashboard') loadDashboard();
+    else if (tab === 'heatmap') loadHeatmap();
+    else if (tab === 'rating') loadRating();
+    else if (tab === 'groups') loadGroups();
+}
+
+// ============================================================
+// Filters
+// ============================================================
+function setupFilters() {
+    ['f-symbol', 'f-direction', 'f-timeframe', 'f-mintrades', 'f-limit', 'f-groupby'].forEach(function(id) {
+        document.getElementById(id).addEventListener('change', function() { loadTab(currentTab); });
+    });
+
+    // Rating column sort
+    document.querySelectorAll('.sortable').forEach(function(th) {
+        th.addEventListener('click', function() {
+            var col = this.dataset.sort;
+            if (ratingSort === col) {
+                ratingSortDir = ratingSortDir === 'desc' ? 'asc' : 'desc';
+            } else {
+                ratingSort = col;
+                ratingSortDir = 'desc';
+            }
+            loadRating();
+        });
+    });
+}
+
+function getParams() {
+    var p = new URLSearchParams();
+    var s = document.getElementById('f-symbol').value;
+    var d = document.getElementById('f-direction').value;
+    var t = document.getElementById('f-timeframe').value;
+    if (s) p.set('symbol', s);
+    if (d) p.set('direction', d);
+    if (t) p.set('timeframe', t);
+    return p;
+}
+
+// ============================================================
+// Dashboard
+// ============================================================
+async function loadDashboard() {
+    try {
+        var params = getParams();
+        var response = await fetch('/api/analytics/dashboard?' + params.toString());
+        var data = await response.json();
+        if (data.status !== 'ok') throw new Error('API error');
+
+        renderDashboard(data);
+        document.getElementById('tab-dashboard').style.display = 'block';
+        hideLoading();
+    } catch (e) {
+        console.error('Dashboard error:', e);
+        hideLoading();
+    }
+}
+
+function renderDashboard(data) {
+    var s = data.summary;
+
+    // Summary cards
+    var cardsHtml = '';
+    cardsHtml += card('Стратегий', s.total_strategies);
+    cardsHtml += card('С торгами', s.with_trades);
+    cardsHtml += card('Прибыльных', s.profitable, 'var(--green)');
+    cardsHtml += card('Убыточных', s.losing, 'var(--red)');
+    cardsHtml += card('Sum PnL', pnlFmt(s.sum_pnl), s.sum_pnl >= 0 ? 'var(--green)' : 'var(--red)');
+    cardsHtml += card('Avg PnL', pnlFmt(s.avg_pnl), s.avg_pnl >= 0 ? 'var(--green)' : 'var(--red)');
+
+    if (s.best_strategy) {
+        cardsHtml += card('Лучшая', s.best_strategy.name.substring(0, 25) + ' ' + pnlFmt(s.best_strategy.pnl), 'var(--green)');
+    }
+    if (s.worst_strategy) {
+        cardsHtml += card('Худшая', s.worst_strategy.name.substring(0, 25) + ' ' + pnlFmt(s.worst_strategy.pnl), 'var(--red)');
+    }
+
+    document.getElementById('dash-summary').innerHTML = cardsHtml;
+
+    // Charts
+    renderBarChart('chart-coin', data.pnl_by_coin.map(function(c) { return c.coin; }),
+        data.pnl_by_coin.map(function(c) { return c.pnl; }), 'PnL');
+
+    renderBarChart('chart-tf', data.pnl_by_timeframe.map(function(c) { return c.timeframe; }),
+        data.pnl_by_timeframe.map(function(c) { return c.pnl; }), 'PnL');
+
+    renderBarChart('chart-dir', data.pnl_by_direction.map(function(c) { return c.direction; }),
+        data.pnl_by_direction.map(function(c) { return c.pnl; }), 'PnL');
+
+    // Win rate histogram
+    var wrLabels = data.winrate_distribution.map(function(d) { return d.wr_from + '-' + d.wr_to + '%'; });
+    var wrValues = data.winrate_distribution.map(function(d) { return d.count; });
+    renderBarChart('chart-wr', wrLabels, wrValues, 'Стратегий', false);
+}
+
+function renderBarChart(canvasId, labels, values, label, colorByValue) {
+    if (charts[canvasId]) charts[canvasId].destroy();
+
+    var colors = values.map(function(v) {
+        if (colorByValue === false) return 'rgba(99, 102, 241, 0.7)';
+        return v >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)';
+    });
+
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    charts[canvasId] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: label,
+                data: values,
+                backgroundColor: colors,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            return label + ': ' + (colorByValue !== false ? '$' : '') + ctx.raw.toFixed(2);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+            }
+        }
+    });
+}
+
+// ============================================================
+// Heatmap
+// ============================================================
+async function loadHeatmap() {
+    try {
+        var params = getParams();
+        var response = await fetch('/api/analytics/heatmap?' + params.toString());
+        var data = await response.json();
+        if (data.status !== 'ok') throw new Error('API error');
+
+        renderHeatmap(data);
+        document.getElementById('tab-heatmap').style.display = 'block';
+        hideLoading();
+    } catch (e) {
+        console.error('Heatmap error:', e);
+        hideLoading();
+    }
+}
+
+function renderHeatmap(data) {
+    var container = document.getElementById('heatmap-container');
+
+    if (!data.cells || data.cells.length === 0) {
+        container.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem;">Нет данных для heatmap</p>';
+        return;
+    }
+
+    var periods = data.periods;
+    var multipliers = data.multipliers;
+    var cols = multipliers.length + 1;
+
+    // Build cell lookup
+    var cellMap = {};
+    var minPnl = Infinity, maxPnl = -Infinity;
+    data.cells.forEach(function(c) {
+        cellMap[c.period + '_' + c.multiplier] = c;
+        if (c.avg_pnl < minPnl) minPnl = c.avg_pnl;
+        if (c.avg_pnl > maxPnl) maxPnl = c.avg_pnl;
+    });
+
+    var html = '<div class="heatmap-grid" style="grid-template-columns: 60px repeat(' + multipliers.length + ', 1fr);">';
+
+    // Header row
+    html += '<div class="hm-header">Period \\ Mult</div>';
+    multipliers.forEach(function(m) {
+        html += '<div class="hm-header">' + m + '</div>';
+    });
+
+    // Data rows
+    periods.forEach(function(p) {
+        html += '<div class="hm-header">' + p + '</div>';
+        multipliers.forEach(function(m) {
+            var c = cellMap[p + '_' + m];
+            if (c) {
+                var bg = pnlColor(c.avg_pnl, minPnl, maxPnl);
+                var textColor = Math.abs(c.avg_pnl) > (maxPnl - minPnl) * 0.3 ? '#fff' : 'var(--text-primary)';
+                html += '<div class="hm-cell" style="background:' + bg + ';color:' + textColor + ';" ' +
+                    'title="Period=' + p + ' Mult=' + m + ' | Avg PnL=$' + c.avg_pnl.toFixed(4) +
+                    ' | WR=' + c.avg_winrate.toFixed(1) + '% | ' + c.count + ' стратегий">' +
+                    '<div class="hm-val">' + (c.avg_pnl >= 0 ? '+' : '') + '$' + c.avg_pnl.toFixed(3) + '</div>' +
+                    '<div class="hm-sub">WR ' + c.avg_winrate.toFixed(0) + '% · ' + c.count + '</div></div>';
+            } else {
+                html += '<div class="hm-cell" style="background:var(--bg-tertiary,#1e293b);opacity:0.3;">—</div>';
+            }
+        });
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function pnlColor(val, min, max) {
+    if (max === min) return 'rgba(100,100,100,0.3)';
+    // Normalize to -1..1
+    var norm;
+    if (val >= 0) norm = max > 0 ? val / max : 0;
+    else norm = min < 0 ? -val / Math.abs(min) : 0;
+
+    if (val >= 0) {
+        var g = Math.round(80 + norm * 175);
+        return 'rgba(34,' + g + ',94,' + (0.2 + norm * 0.6) + ')';
+    } else {
+        var r = Math.round(80 + norm * 175);
+        return 'rgba(' + r + ',68,68,' + (0.2 + norm * 0.6) + ')';
+    }
+}
+
+// ============================================================
+// Rating
+// ============================================================
+async function loadRating() {
+    try {
+        var params = getParams();
+        params.set('min_trades', document.getElementById('f-mintrades').value);
+        params.set('limit', document.getElementById('f-limit').value);
+        params.set('sort_by', ratingSort);
+        params.set('sort_dir', ratingSortDir);
+
+        var response = await fetch('/api/analytics/rating?' + params.toString());
+        var data = await response.json();
+        if (data.status !== 'ok') throw new Error('API error');
+
+        renderRating(data.strategies);
+
+        // Update sort indicators
+        document.querySelectorAll('.sortable').forEach(function(th) {
+            var col = th.dataset.sort;
+            var arrow = col === ratingSort ? (ratingSortDir === 'desc' ? ' ↓' : ' ↑') : '';
+            th.textContent = {'total_pnl': 'PnL', 'win_rate': 'WR%', 'profit_factor': 'PF',
+                'trades': 'Сделок', 'avg_pnl': 'Avg PnL'}[col] + arrow;
+        });
+
+        document.getElementById('tab-rating').style.display = 'block';
+        hideLoading();
+    } catch (e) {
+        console.error('Rating error:', e);
+        hideLoading();
+    }
+}
+
+function renderRating(strategies) {
+    var tbody = document.getElementById('rating-list');
+    tbody.innerHTML = '';
+
+    strategies.forEach(function(s, i) {
+        var tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.onclick = function() { window.location.href = '/strategy/' + s.id; };
+
+        var pnlCls = s.total_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+        var openBadge = s.open_trades > 0
+            ? ' <span class="badge badge-open-long" style="font-size:0.65rem;padding:1px 5px;">OPEN</span>' : '';
+
+        tr.innerHTML = '<td>' + (i + 1) + '</td>' +
+            '<td><strong>' + s.name + '</strong></td>' +
+            '<td>' + s.symbol + '</td>' +
+            '<td>' + s.timeframe + '</td>' +
+            '<td><span class="badge badge-' + s.direction + '">' + s.direction.toUpperCase() + '</span></td>' +
+            '<td class="text-right"><span class="' + pnlCls + '">' + pnlFmt(s.total_pnl) + '</span></td>' +
+            '<td class="text-right">' + s.win_rate.toFixed(1) + '%</td>' +
+            '<td class="text-right">' + s.profit_factor.toFixed(2) + '</td>' +
+            '<td class="text-right">' + s.trades + '</td>' +
+            '<td class="text-right"><span class="' + (s.avg_pnl >= 0 ? 'pnl-positive' : 'pnl-negative') + '">' + pnlFmt(s.avg_pnl) + '</span></td>' +
+            '<td>' + openBadge + '</td>';
+
+        tbody.appendChild(tr);
+    });
+}
+
+// ============================================================
+// Groups
+// ============================================================
+async function loadGroups() {
+    try {
+        var params = getParams();
+        params.set('group_by', document.getElementById('f-groupby').value);
+
+        var response = await fetch('/api/analytics/groups?' + params.toString());
+        var data = await response.json();
+        if (data.status !== 'ok') throw new Error('API error');
+
+        renderGroups(data.groups);
+        document.getElementById('tab-groups').style.display = 'block';
+        hideLoading();
+    } catch (e) {
+        console.error('Groups error:', e);
+        hideLoading();
+    }
+}
+
+function renderGroups(groups) {
+    var tbody = document.getElementById('groups-list');
+    tbody.innerHTML = '';
+
+    groups.forEach(function(g) {
+        var tr = document.createElement('tr');
+        var pnlCls = g.avg_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+        var sumCls = g.sum_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+        tr.innerHTML = '<td><strong>' + g.name + '</strong></td>' +
+            '<td class="text-right">' + g.strategies + '</td>' +
+            '<td class="text-right"><span class="' + pnlCls + '">' + pnlFmt(g.avg_pnl) + '</span></td>' +
+            '<td class="text-right"><span class="' + sumCls + '">' + pnlFmt(g.sum_pnl) + '</span></td>' +
+            '<td class="text-right">' + g.avg_winrate.toFixed(1) + '%</td>' +
+            '<td class="text-right">' + g.profit_factor.toFixed(2) + '</td>' +
+            '<td class="text-right">' + g.total_trades + '</td>' +
+            '<td class="text-right">' + g.profitable_count + '</td>' +
+            '<td class="text-right">' + g.profitable_pct.toFixed(1) + '%</td>';
+
+        tbody.appendChild(tr);
+    });
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function card(label, value, color) {
+    var style = color ? ' style="color:' + color + '"' : '';
+    return '<div class="a-card"><div class="a-card-label">' + label + '</div><div class="a-card-value"' + style + '>' + value + '</div></div>';
+}
+
+function pnlFmt(v) {
+    if (v == null) return '$0.00';
+    return (v >= 0 ? '+' : '') + '$' + Math.abs(v).toFixed(2);
+}
+
+function showLoading() {
+    document.getElementById('loading-state').style.display = 'block';
+    document.querySelectorAll('.tab-content').forEach(function(el) { el.style.display = 'none'; });
+}
+function hideLoading() {
+    document.getElementById('loading-state').style.display = 'none';
+}
+</script>
+{% endblock %}

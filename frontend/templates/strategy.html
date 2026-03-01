@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Strategy Details - Trading Platform{% endblock %}
+
+{% block content %}
+<div data-page="strategy">
+    <!-- Strategy Header -->
+    <div style="padding: var(--spacing-lg) var(--spacing-xl); background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-sm);">
+                    <h1 id="strategy-name" style="margin: 0; font-size: 1.5rem;">Loading...</h1>
+                    <span id="strategy-status" class="badge badge-stopped">STOPPED</span>
+                </div>
+                <div style="display: flex; gap: var(--spacing-lg); color: var(--text-secondary); font-size: 0.85rem;">
+                    <span><i data-lucide="clock"></i> <span id="strategy-timeframe">-</span></span>
+                    <span><i data-lucide="trending-up"></i> <span id="strategy-direction">-</span></span>
+                    <span><i data-lucide="layers"></i> Leverage: <span id="strategy-leverage">x1</span></span>
+                    <span><i data-lucide="settings"></i> <span id="strategy-params">-</span></span>
+                </div>
+            </div>
+            <div style="display: flex; gap: var(--spacing-md);">
+                <button class="btn btn-secondary" id="refresh-btn">
+                    <i data-lucide="refresh-cw"></i> Обновить
+                </button>
+                <button class="btn btn-success" id="start-btn" style="display: none;">
+                    <i data-lucide="play"></i> Start
+                </button>
+                <button class="btn btn-danger" id="stop-btn" style="display: none;">
+                    <i data-lucide="stop-circle"></i> Stop
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div style="padding: var(--spacing-xl);">
+        <!-- Loading State -->
+        <div id="loading-state" style="text-align: center; padding: 3rem;">
+            <i data-lucide="loader" style="width: 48px; height: 48px; animation: spin 1s linear infinite;"></i>
+            <p class="text-muted" style="margin-top: 1rem;">Загрузка данных стратегии...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" style="text-align: center; padding: 3rem; display: none;">
+            <i data-lucide="alert-circle" style="width: 48px; height: 48px; color: var(--red);"></i>
+            <p class="text-muted" style="margin-top: 1rem;" id="error-message">Ошибка загрузки</p>
+            <button class="btn btn-secondary mt-md" onclick="loadStrategy()">Попробовать снова</button>
+        </div>
+
+        <!-- Content -->
+        <div id="content-grid" style="display: none;">
+
+            <!-- Tabs: Показатели / Список сделок -->
+            <div class="strategy-tabs" style="margin-bottom: var(--spacing-lg);">
+                <button class="tab active" data-tab="metrics" onclick="switchTab('metrics')">Показатели</button>
+                <button class="tab" data-tab="trades" onclick="switchTab('trades')">Список сделок</button>
+            </div>
+
+            <!-- ===== TAB: Показатели ===== -->
+            <div id="tab-metrics">
+
+                <!-- Row 0: Top Summary Bar (like TradingView) -->
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-md); margin-bottom: var(--spacing-xl);">
+                    <div class="metric-card">
+                        <div class="metric-label">Общий PnL</div>
+                        <div id="top-total-pnl" class="metric-value-lg">$0.00</div>
+                        <div id="top-total-pnl-pct" class="metric-sub">0.00%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Текущий баланс</div>
+                        <div id="top-balance" class="metric-value-lg">$1,000.00</div>
+                        <div class="metric-sub">Начальный: $1,000</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Всего сделок</div>
+                        <div id="top-total-trades" class="metric-value-lg">0</div>
+                        <div id="top-open-trades" class="metric-sub">Открытых: 0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Прибыльность</div>
+                        <div id="top-win-rate" class="metric-value-lg">0%</div>
+                        <div id="top-win-loss" class="metric-sub">0W / 0L</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Фактор прибыли</div>
+                        <div id="top-profit-factor" class="metric-value-lg">0.00</div>
+                        <div id="top-avg-duration" class="metric-sub">Avg: -</div>
+                    </div>
+                </div>
+
+                <!-- Row 1: Equity Curve -->
+                <div style="background: var(--bg-secondary); border-radius: 8px; padding: var(--spacing-lg); margin-bottom: var(--spacing-xl);">
+                    <h3 style="margin-bottom: var(--spacing-md);">График капитала</h3>
+                    <div id="equity-chart" style="height: 300px;"></div>
+                </div>
+
+                <!-- Row 2: Доходность + Анализ сделок -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-xl); margin-bottom: var(--spacing-xl);">
+
+                    <!-- Доходность -->
+                    <div style="background: var(--bg-secondary); border-radius: 8px; padding: var(--spacing-lg);">
+                        <h3 style="margin-bottom: var(--spacing-md);">Доходность</h3>
+                        <table class="metrics-table">
+                            <tr><td>Начальный капитал</td><td id="m-initial-balance">$1,000.00</td></tr>
+                            <tr><td>Чистая прибыль/убыток</td><td id="m-net-pnl">$0.00</td></tr>
+                            <tr><td>Валовая прибыль</td><td id="m-gross-profit">$0.00</td></tr>
+                            <tr><td>Валовый убыток</td><td id="m-gross-loss">$0.00</td></tr>
+                            <tr><td>Комиссии</td><td id="m-total-fees">$0.00</td></tr>
+                            <tr><td>Фактор прибыли</td><td id="m-profit-factor">0.00</td></tr>
+                            <tr><td>Expectancy</td><td id="m-expectancy">$0.00</td></tr>
+                        </table>
+                    </div>
+
+                    <!-- Анализ сделок -->
+                    <div style="background: var(--bg-secondary); border-radius: 8px; padding: var(--spacing-lg);">
+                        <h3 style="margin-bottom: var(--spacing-md);">Анализ сделок</h3>
+                        <table class="metrics-table">
+                            <tr><td>Всего сделок</td><td id="m-total-trades">0</td></tr>
+                            <tr><td>Прибыльных</td><td id="m-win-count" style="color: var(--green)">0</td></tr>
+                            <tr><td>Убыточных</td><td id="m-loss-count" style="color: var(--red)">0</td></tr>
+                            <tr><td>Win Rate</td><td id="m-win-rate">0%</td></tr>
+                            <tr><td>Средняя прибыль</td><td id="m-avg-win">$0.00</td></tr>
+                            <tr><td>Средний убыток</td><td id="m-avg-loss">$0.00</td></tr>
+                            <tr><td>Лучшая сделка</td><td id="m-best-trade">$0.00</td></tr>
+                            <tr><td>Худшая сделка</td><td id="m-worst-trade">$0.00</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Row 3: Риск + Серии -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-xl); margin-bottom: var(--spacing-xl);">
+
+                    <!-- Доходность с учётом риска -->
+                    <div style="background: var(--bg-secondary); border-radius: 8px; padding: var(--spacing-lg);">
+                        <h3 style="margin-bottom: var(--spacing-md);">Риск</h3>
+                        <table class="metrics-table">
+                            <tr><td>Max Drawdown</td><td id="m-max-dd" style="color: var(--red)">$0.00</td></tr>
+                            <tr><td>Max Drawdown %</td><td id="m-max-dd-pct" style="color: var(--red)">0%</td></tr>
+                            <tr><td>Sharpe Ratio</td><td id="m-sharpe">0.00</td></tr>
+                            <tr><td>SL Hits</td><td id="m-sl-hits">0</td></tr>
+                        </table>
+                    </div>
+
+                    <!-- Серии -->
+                    <div style="background: var(--bg-secondary); border-radius: 8px; padding: var(--spacing-lg);">
+                        <h3 style="margin-bottom: var(--spacing-md);">Серии и длительность</h3>
+                        <table class="metrics-table">
+                            <tr><td>Макс. серия выигрышей</td><td id="m-consec-wins" style="color: var(--green)">0</td></tr>
+                            <tr><td>Макс. серия проигрышей</td><td id="m-consec-losses" style="color: var(--red)">0</td></tr>
+                            <tr><td>Средняя длительность</td><td id="m-avg-duration">-</td></tr>
+                            <tr><td>Лучшая сделка %</td><td id="m-best-trade-pct" style="color: var(--green)">0%</td></tr>
+                            <tr><td>Худшая сделка %</td><td id="m-worst-trade-pct" style="color: var(--red)">0%</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== TAB: Список сделок ===== -->
+            <div id="tab-trades" style="display: none;">
+                <div style="background: var(--bg-secondary); border-radius: 8px; padding: var(--spacing-lg);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-md);">
+                        <h3 style="margin: 0;">Список сделок</h3>
+                        <select id="trades-filter" style="padding: 0.5rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;">
+                            <option value="all">Все</option>
+                            <option value="wins">Прибыльные</option>
+                            <option value="losses">Убыточные</option>
+                            <option value="open">Открытые</option>
+                        </select>
+                    </div>
+
+                    <div style="max-height: 600px; overflow-y: auto;">
+                        <table style="width: 100%; font-size: 0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Тип</th>
+                                    <th>Дата открытия</th>
+                                    <th>Дата закрытия</th>
+                                    <th>Цена входа</th>
+                                    <th>Цена выхода</th>
+                                    <th>Размер</th>
+                                    <th>PnL</th>
+                                    <th>PnL %</th>
+                                    <th>Комиссия</th>
+                                    <th>Совокупный PnL</th>
+                                    <th>Причина</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-list">
+                                <tr>
+                                    <td colspan="12" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                        Нет сделок
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<style>
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.metric-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: var(--spacing-lg);
+    text-align: center;
+}
+.metric-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.3rem;
+}
+.metric-value-lg {
+    font-size: 1.4rem;
+    font-weight: 700;
+    font-family: 'Orbitron', monospace;
+}
+.metric-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.2rem;
+}
+
+.metrics-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.metrics-table td {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.85rem;
+}
+.metrics-table td:first-child {
+    color: var(--text-secondary);
+}
+.metrics-table td:last-child {
+    text-align: right;
+    font-weight: 600;
+    font-family: 'Exo 2', monospace;
+}
+
+.strategy-tabs {
+    display: flex;
+    gap: 0.5rem;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/strategy.js') }}"></script>
+{% endblock %}

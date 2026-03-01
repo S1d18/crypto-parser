@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Watchlist - Trading Platform{% endblock %}
+
+{% block content %}
+<div data-page="watchlist">
+    <!-- Header с табами -->
+    <div class="page-header">
+        <h1>{{ symbol or 'BTC' }} Watchlist</h1>
+        <p class="text-muted" id="page-subtitle">Загрузка стратегий для {{ symbol or 'BTC' }}...</p>
+    </div>
+
+    <!-- Табы для группировки -->
+    <div class="strategy-tabs">
+        <button class="tab active" data-group="all">Все (0)</button>
+        <button class="tab" data-group="scalping">Scalping (0)</button>
+        <button class="tab" data-group="intraday">Intraday (0)</button>
+        <button class="tab" data-group="swing">Swing (0)</button>
+        <button class="tab" data-group="position">Position (0)</button>
+    </div>
+
+    <!-- Filters Bar -->
+    <div class="filters-bar">
+        <div class="filter-group">
+            <label for="filter-category">Категория:</label>
+            <select id="filter-category">
+                <option value="all">Все</option>
+                <option value="live">Live Trading</option>
+                <option value="paper">Paper Trading</option>
+                <option value="arbitrage">Arbitrage</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="filter-timeframe">Timeframe:</label>
+            <select id="filter-timeframe">
+                <option value="all">Все</option>
+                <option value="1m">1m</option>
+                <option value="3m">3m</option>
+                <option value="5m">5m</option>
+                <option value="15m">15m</option>
+                <option value="30m">30m</option>
+                <option value="1h">1h</option>
+                <option value="2h">2h</option>
+                <option value="4h">4h</option>
+                <option value="6h">6h</option>
+                <option value="12h">12h</option>
+                <option value="1d">1d</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="filter-direction">Направление:</label>
+            <select id="filter-direction">
+                <option value="all">Все</option>
+                <option value="long">Long</option>
+                <option value="short">Short</option>
+                <option value="both">Both</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="filter-status">Статус:</label>
+            <select id="filter-status">
+                <option value="all">Все</option>
+                <option value="running">Running</option>
+                <option value="stopped">Stopped</option>
+                <option value="error">Error</option>
+            </select>
+        </div>
+
+        <!-- Массовое управление -->
+        <div class="filter-group" style="margin-left: auto; display: flex; gap: 1rem;">
+            <button class="btn btn-success" id="start-all-btn">
+                <i data-lucide="play"></i>
+                Start All
+            </button>
+            <button class="btn btn-danger" id="stop-all-btn">
+                <i data-lucide="square"></i>
+                Stop All
+            </button>
+            <button class="btn btn-secondary" id="refresh-btn">
+                <i data-lucide="refresh-cw"></i>
+                Обновить
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Summary -->
+    <div id="stats-bar" style="display: none; padding: 0.75rem var(--spacing-xl) 0;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem;">
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">Стратегий</div>
+                <div class="wl-stat-value" id="stat-total">0</div>
+            </div>
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">Running</div>
+                <div class="wl-stat-value" id="stat-running" style="color: var(--green);">0</div>
+            </div>
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">Total PnL</div>
+                <div class="wl-stat-value" id="stat-pnl">$0.00</div>
+            </div>
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">PnL 24h</div>
+                <div class="wl-stat-value" id="stat-pnl24">$0.00</div>
+            </div>
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">Avg Win Rate</div>
+                <div class="wl-stat-value" id="stat-winrate">0%</div>
+            </div>
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">Всего сделок</div>
+                <div class="wl-stat-value" id="stat-trades">0</div>
+            </div>
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">Лучшая</div>
+                <div class="wl-stat-value" id="stat-best" style="color: var(--green);">-</div>
+            </div>
+            <div class="wl-stat-card">
+                <div class="wl-stat-label">Худшая</div>
+                <div class="wl-stat-value" id="stat-worst" style="color: var(--red);">-</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Strategies Table -->
+    <div class="table-container">
+        <!-- Loading State -->
+        <div id="loading-state" style="text-align: center; padding: 3rem; display: block;">
+            <i data-lucide="loader" style="width: 48px; height: 48px; animation: spin 1s linear infinite;"></i>
+            <p class="text-muted" style="margin-top: 1rem;">Загрузка стратегий...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" style="text-align: center; padding: 3rem; display: none;">
+            <i data-lucide="alert-circle" style="width: 48px; height: 48px; color: var(--red);"></i>
+            <p class="text-muted" style="margin-top: 1rem;" id="error-message">Ошибка загрузки</p>
+            <button class="btn btn-secondary mt-md" onclick="loadStrategies()">Попробовать снова</button>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" style="text-align: center; padding: 3rem; display: none;">
+            <i data-lucide="inbox" style="width: 48px; height: 48px;"></i>
+            <p class="text-muted" style="margin-top: 1rem;">Стратегии не найдены</p>
+        </div>
+
+        <!-- Table -->
+        <table id="strategies-table" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Стратегия</th>
+                    <th>Категория</th>
+                    <th>TF</th>
+                    <th>Направление</th>
+                    <th>Leverage</th>
+                    <th class="text-right">Баланс</th>
+                    <th>Статус</th>
+                    <th class="text-right">PnL (24h)</th>
+                    <th class="text-right">Total PnL</th>
+                    <th class="text-right">Win Rate</th>
+                    <th class="text-right">Сделок</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="strategies-list">
+                <!-- Динамически загружается через JavaScript -->
+            </tbody>
+        </table>
+
+    </div>
+</div>
+
+<style>
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.wl-stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    text-align: center;
+}
+.wl-stat-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.15rem;
+}
+.wl-stat-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/watchlist.js') }}"></script>
+{% endblock %}
