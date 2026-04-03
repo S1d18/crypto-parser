@@ -1,70 +1,66 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
-Торговый бот Supertrend для BTCUSDT на Bybit. Использует индикатор Supertrend (10, 3) на двух таймфреймах:
-- **4h Long-only** — основная стратегия (SL=3%)
-- **10m Short-only** — хедж (SL=1%)
+**Снайпер** — скальпинг-бот для крипто-торговли (paper trading) на Bybit.
+Сканирует топ-50 USDT-перпов по объёму, входит в быстрые сделки с x20 плечом.
+Мульти-индикаторные сигналы (EMA+RSI+Volume+ADX), адаптивные SL/TP по ATR, trailing stop.
 
 ## Architecture
 
 ```
-config.py       — Dataclass Config, загрузка из .env
-supertrend.py   — Расчёт индикатора Supertrend (ATR-based)
-bot.py          — Главный торговый бот (точка входа), asyncio цикл
-notifier.py     — Telegram-уведомления
-storage.py      — SQLite хранилище сделок
-dashboard.py    — CLI-графики (matplotlib)
-
-web/            — Веб-интерфейс (Flask, порт 5001)
-├── app.py      — Flask приложение с API endpoints
-├── run.py      — Запуск веб-сервера
-├── templates/  — HTML шаблоны (glassmorphism дизайн)
-└── static/     — CSS и JavaScript (real-time updates)
-
-arb/            — Арбитражный дашборд (отдельный проект, порт 5001)
+run.py              — Точка входа (бот + Flask сервер)
+scalper/
+├── config.py       — Dataclass Config, загрузка из .env
+├── bot.py          — Главный asyncio торговый цикл
+├── scanner.py      — Сканер топ-50 монет, ранжирование по силе сигнала
+├── signals.py      — Мульти-индикаторные сигналы с адаптивным SL/TP
+├── indicators.py   — Расчёт EMA, RSI, ATR, ADX, Volume Ratio (numpy)
+├── filters.py      — Фильтр по тренду старшего ТФ (15m)
+├── risk.py         — Trailing stop, позиционирование, лимиты убытков
+├── exchange.py     — Async обёртка ccxt для Bybit
+├── storage.py      — SQLite хранилище сделок и equity
+└── web/
+    ├── app.py      — Flask + SocketIO дашборд
+    ├── templates/  — HTML (русский, glassmorphism)
+    └── static/     — CSS/JS (real-time обновление)
 ```
 
 ## Environment Setup
 
 ```bash
-# Активация виртуального окружения
 .venv\Scripts\activate      # Windows
 source .venv/bin/activate   # Linux/macOS
-
-# Установка зависимостей
 pip install -r requirements.txt
-
-# Настройка
-cp .env.example .env        # Заполнить API ключи
+cp .env.example .env        # Заполнить API ключи Bybit (демо)
 ```
 
 ## Running
 
-### Торговый бот
 ```bash
-python bot.py
-```
-
-### Веб-интерфейс мониторинга
-```bash
-cd web
 python run.py
 ```
-Откройте: **http://localhost:5001**
+Дашборд: **http://localhost:5001**
 
-Веб-дашборд показывает:
-- Статус бота и текущие позиции (4h Long / 10m Short)
-- Статистику: общий PnL, винрейт, количество сделок
-- Историю сделок с фильтрами
-- Современный дизайн с glassmorphism и Lucide иконками
-- Real-time обновление каждые 5 секунд
+## Trading Parameters
+
+- Баланс: $200, плечо x20
+- На сделку: 50% баланса ($100 маржи = $2000 позиция)
+- SL: адаптивный по ATR (1.5×ATR)
+- TP: 2× расстояние SL
+- Trailing stop подтягивается за ценой
+- 10 убытков подряд → пауза 1 час
+- Дневной лимит убытка: -$30 → стоп на день
+
+## Testing
+
+```bash
+python -m pytest tests/ -v
+```
 
 ## Key Dependencies
 
-- `ccxt` — подключение к Bybit API
-- `numpy` — расчёт ATR/Supertrend
+- `ccxt` — Bybit API (async)
+- `numpy` — индикаторы
+- `flask` + `flask-socketio` — веб-дашборд
 - `python-dotenv` — загрузка .env
-- `requests` — Telegram API
