@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import aiohttp
+from aiohttp.resolver import ThreadedResolver
 import ccxt.async_support as ccxt_async
 import numpy as np
 
@@ -17,10 +19,16 @@ class Exchange:
             'enableRateLimit': True,
         })
         if config.bybit_demo:
-            self._exchange.set_sandbox_mode(True)
+            self._exchange.enable_demo_trading(True)
 
     async def start(self):
-        """Load markets."""
+        """Load markets. Uses ThreadedResolver to avoid aiodns issues on Windows."""
+        # Replace default session with one using ThreadedResolver
+        resolver = ThreadedResolver()
+        connector = aiohttp.TCPConnector(resolver=resolver, ssl=False)
+        if self._exchange.session:
+            await self._exchange.session.close()
+        self._exchange.session = aiohttp.ClientSession(connector=connector)
         await self._exchange.load_markets()
 
     async def close(self):

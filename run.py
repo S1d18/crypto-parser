@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import sys
 from threading import Thread
 
 from scalper.config import Config
@@ -17,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[
-        logging.StreamHandler(),
+        logging.StreamHandler(sys.stdout),
         logging.FileHandler('scalper.log', encoding='utf-8'),
     ],
 )
@@ -40,6 +41,8 @@ def run_bot(bot: ScalperBot):
         loop.run_until_complete(bot.run())
     except KeyboardInterrupt:
         pass
+    except Exception:
+        log.error('Bot thread crashed', exc_info=True)
     finally:
         loop.close()
 
@@ -63,10 +66,10 @@ def main():
     bot_thread.start()
     log.info('Bot thread started')
 
-    # Start web server (main thread)
+    # Start web server (main thread, use threading mode — no eventlet)
     log.info('Starting web dashboard on 0.0.0.0:%d', config.web_port)
     socketio.run(app, host='0.0.0.0', port=config.web_port, debug=False,
-                 use_reloader=False, log_output=False)
+                 use_reloader=False, log_output=False, allow_unsafe_werkzeug=True)
 
 
 if __name__ == '__main__':

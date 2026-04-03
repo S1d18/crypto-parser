@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сделка #{{ trade_id }} — Снайпер</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        /* ===== Trade page specific styles ===== */
+        .trade-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 32px;
+            background: var(--glass);
+            border-bottom: 1px solid var(--glass-border);
+            backdrop-filter: blur(10px);
+        }
+
+        .trade-header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 10px;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: background 0.15s;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .trade-symbol {
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .dir-badge {
+            padding: 4px 14px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .dir-badge-long {
+            background: rgba(0, 230, 118, 0.15);
+            color: var(--green);
+            border: 1px solid rgba(0, 230, 118, 0.3);
+        }
+
+        .dir-badge-short {
+            background: rgba(255, 82, 82, 0.15);
+            color: var(--red);
+            border: 1px solid rgba(255, 82, 82, 0.3);
+        }
+
+        .status-badge-closed {
+            padding: 4px 14px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: rgba(136, 136, 170, 0.15);
+            color: var(--text-dim);
+            border: 1px solid rgba(136, 136, 170, 0.3);
+        }
+
+        /* Info cards */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .info-card {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            backdrop-filter: blur(10px);
+        }
+
+        .info-card-label {
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .info-card-value {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .info-card-sub {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        /* Chart */
+        .chart-wrapper {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        #tv-chart {
+            width: 100%;
+            height: 500px;
+        }
+
+        /* Details table */
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .details-table th {
+            text-align: left;
+            padding: 10px 14px;
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--glass-border);
+            width: 30%;
+        }
+
+        .details-table td {
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .loading-msg {
+            color: var(--text-dim);
+            text-align: center;
+            padding: 40px 0;
+            font-size: 0.95rem;
+        }
+
+        @media (max-width: 600px) {
+            .trade-header {
+                flex-direction: column;
+                gap: 12px;
+                padding: 12px 16px;
+            }
+            #tv-chart {
+                height: 350px;
+            }
+            .info-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="trade-header">
+        <div class="trade-header-left">
+            <a href="/" class="back-btn">&larr; Назад</a>
+            <span class="trade-symbol" id="trade-symbol">...</span>
+            <span class="dir-badge" id="trade-dir-badge">...</span>
+            <span id="trade-status-badge"></span>
+        </div>
+        <div>
+            <span style="color: var(--text-dim); font-size: 0.85rem;">Сделка #{{ trade_id }}</span>
+        </div>
+    </div>
+
+    <main class="container">
+        <!-- Info cards -->
+        <section class="info-grid" id="info-grid">
+            <div class="info-card">
+                <div class="info-card-label">Текущая цена</div>
+                <div class="info-card-value" id="info-current-price">—</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-label">Вход</div>
+                <div class="info-card-value" id="info-entry">—</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-label">Нереализ. PnL</div>
+                <div class="info-card-value" id="info-pnl">—</div>
+                <div class="info-card-sub" id="info-pnl-pct"></div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-label">Объём позиции</div>
+                <div class="info-card-value" id="info-position-value">—</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-label">Маржа</div>
+                <div class="info-card-value" id="info-margin">—</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-label">Плечо</div>
+                <div class="info-card-value" id="info-leverage">—</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-label">SL цена</div>
+                <div class="info-card-value pnl-negative" id="info-sl">—</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-label">TP цена</div>
+                <div class="info-card-value pnl-positive" id="info-tp">—</div>
+            </div>
+        </section>
+
+        <!-- Reasons card (separate, full-width) -->
+        <section class="card" id="reasons-section" style="display:none;">
+            <div class="info-card-label" style="margin-bottom:8px;">Причины входа</div>
+            <div id="info-reasons" style="font-size:0.95rem;">—</div>
+        </section>
+
+        <!-- Chart -->
+        <section class="chart-wrapper">
+            <div id="tv-chart">
+                <p class="loading-msg" id="chart-loading">Загрузка графика...</p>
+            </div>
+        </section>
+
+        <!-- Trade details table -->
+        <section class="card">
+            <h2 class="card-title">Детали сделки</h2>
+            <table class="details-table" id="details-table">
+                <tbody id="details-tbody">
+                    <tr><td colspan="2" class="loading-msg">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <script>
+    const TRADE_ID = {{ trade_id }};
+    const TIMEFRAME = '3m';
+
+    let tvChart = null;
+    let candleSeries = null;
+    let volumeSeries = null;
+    let entryLine = null;
+    let slLine = null;
+    let tpLine = null;
+    let tradeData = null;
+
+    /* ---------- Helpers ---------- */
+
+    function $(id) { return document.getElementById(id); }
+
+    function fmt(val, decimals) {
+        if (val === null || val === undefined) return '—';
+        return Number(val).toFixed(decimals !== undefined ? decimals : 4);
+    }
+
+    function fmtUsd(val) {
+        if (val === null || val === undefined) return '—';
+        return '$' + Number(val).toFixed(2);
+    }
+
+    function pnlColor(val) {
+        return val >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+
+    function formatTime(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        return d.toLocaleString('ru-RU', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+        });
+    }
+
+    function symbolKey(symbol) {
+        // BTC/USDT:USDT -> BTC-USDT:USDT
+        return symbol.replace('/', '-');
+    }
+
+    /* ---------- Fetch position data ---------- */
+
+    async function fetchPosition() {
+        try {
+            const res = await fetch('/api/position/' + TRADE_ID);
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            console.error('Fetch position error:', e);
+            return null;
+        }
+    }
+
+    /* ---------- Update info panel ---------- */
+
+    function updateInfo(data) {
+        if (!data || data.error) return;
+        tradeData = data;
+
+        // Header
+        $('trade-symbol').textContent = data.symbol || '—';
+
+        const dir = data.direction || 'long';
+        const dirBadge = $('trade-dir-badge');
+        dirBadge.textContent = dir.toUpperCase();
+        dirBadge.className = 'dir-badge ' + (dir === 'long' ? 'dir-badge-long' : 'dir-badge-short');
+
+        const statusBadge = $('trade-status-badge');
+        if (data.status === 'closed') {
+            statusBadge.textContent = 'ЗАКРЫТА';
+            statusBadge.className = 'status-badge-closed';
+        } else {
+            statusBadge.textContent = '';
+            statusBadge.className = '';
+        }
+
+        // Info cards
+        if (data.status === 'open') {
+            $('info-current-price').textContent = '$' + fmt(data.current_price);
+            const pnlVal = data.pnl || 0;
+            const pnlPct = data.pnl_pct || 0;
+            const sign = pnlVal >= 0 ? '+' : '';
+            $('info-pnl').textContent = sign + fmtUsd(pnlVal);
+            $('info-pnl').style.color = pnlColor(pnlVal);
+            $('info-pnl-pct').textContent = sign + pnlPct.toFixed(2) + '%';
+            $('info-pnl-pct').style.color = pnlColor(pnlVal);
+            $('info-position-value').textContent = fmtUsd(data.position_value);
+            $('info-margin').textContent = fmtUsd(data.margin);
+            $('info-leverage').textContent = (data.leverage || '—') + 'x';
+        } else {
+            // Closed trade
+            const exitP = data.exit_price;
+            $('info-current-price').textContent = exitP ? '$' + fmt(exitP) : '—';
+            $('info-current-price').parentElement.querySelector('.info-card-label').textContent = 'Цена выхода';
+
+            const pnlVal = data.pnl || 0;
+            const pnlPct = data.pnl_pct || 0;
+            const sign = pnlVal >= 0 ? '+' : '';
+            $('info-pnl').textContent = sign + fmtUsd(pnlVal);
+            $('info-pnl').style.color = pnlColor(pnlVal);
+            $('info-pnl').parentElement.querySelector('.info-card-label').textContent = 'PnL';
+            $('info-pnl-pct').textContent = sign + pnlPct.toFixed(2) + '%';
+            $('info-pnl-pct').style.color = pnlColor(pnlVal);
+
+            const posValue = data.entry_price && data.qty ? data.entry_price * data.qty : null;
+            $('info-position-value').textContent = posValue ? fmtUsd(posValue) : '—';
+            $('info-margin').textContent = data.margin ? fmtUsd(data.margin) : '—';
+            $('info-leverage').textContent = (data.leverage || '—') + 'x';
+        }
+
+        $('info-entry').textContent = '$' + fmt(data.entry_price);
+        $('info-sl').textContent = '$' + fmt(data.sl_price);
+        $('info-tp').textContent = '$' + fmt(data.tp_price);
+
+        // Reasons
+        const reasons = data.reasons || '';
+        if (reasons) {
+            $('reasons-section').style.display = 'block';
+            $('info-reasons').textContent = reasons;
+        }
+
+        // Details table
+        const rows = [
+            ['Открытие', formatTime(data.opened_at)],
+            ['Направление', dir.toUpperCase()],
+            ['Объём (qty)', data.qty],
+            ['Плечо', (data.leverage || '—') + 'x'],
+            ['Цена входа', '$' + fmt(data.entry_price)],
+            ['SL', '$' + fmt(data.sl_price)],
+            ['TP', '$' + fmt(data.tp_price)],
+            ['Причины', reasons || '—'],
+        ];
+        if (data.status === 'closed') {
+            rows.push(['Закрытие', formatTime(data.closed_at)]);
+            rows.push(['Цена выхода', '$' + fmt(data.exit_price)]);
+            rows.push(['Причина закрытия', data.close_reason || '—']);
+            rows.push(['PnL', (data.pnl >= 0 ? '+' : '') + fmtUsd(data.pnl) + ' (' + (data.pnl_pct || 0).toFixed(2) + '%)']);
+        }
+        let tbody = '';
+        for (const [label, val] of rows) {
+            tbody += `<tr><th>${label}</th><td>${val}</td></tr>`;
+        }
+        $('details-tbody').innerHTML = tbody;
+    }
+
+    /* ---------- TradingView Chart ---------- */
+
+    function initChart() {
+        const container = $('tv-chart');
+        container.innerHTML = '';
+
+        tvChart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 500,
+            layout: {
+                background: { color: '#0a0a1a' },
+                textColor: '#8888aa',
+            },
+            grid: {
+                vertLines: { color: 'rgba(255,255,255,0.04)' },
+                horzLines: { color: 'rgba(255,255,255,0.04)' },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: 'rgba(255,255,255,0.1)',
+            },
+            timeScale: {
+                borderColor: 'rgba(255,255,255,0.1)',
+                timeVisible: true,
+                secondsVisible: false,
+            },
+        });
+
+        candleSeries = tvChart.addCandlestickSeries({
+            upColor: '#00e676',
+            downColor: '#ff5252',
+            borderUpColor: '#00e676',
+            borderDownColor: '#ff5252',
+            wickUpColor: '#00e676',
+            wickDownColor: '#ff5252',
+        });
+
+        volumeSeries = tvChart.addHistogramSeries({
+            color: 'rgba(68, 138, 255, 0.3)',
+            priceFormat: { type: 'volume' },
+            priceScaleId: '',
+        });
+
+        volumeSeries.priceScale().applyOptions({
+            scaleMargins: { top: 0.85, bottom: 0 },
+        });
+
+        // Resize handler
+        const ro = new ResizeObserver(() => {
+            tvChart.applyOptions({ width: container.clientWidth });
+        });
+        ro.observe(container);
+    }
+
+    function updateChartLines(data) {
+        if (!candleSeries || !data) return;
+
+        // Remove old lines
+        if (entryLine) { candleSeries.removePriceLine(entryLine); entryLine = null; }
+        if (slLine) { candleSeries.removePriceLine(slLine); slLine = null; }
+        if (tpLine) { candleSeries.removePriceLine(tpLine); tpLine = null; }
+
+        if (data.entry_price) {
+            entryLine = candleSeries.createPriceLine({
+                price: data.entry_price,
+                color: '#448aff',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'Вход',
+            });
+        }
+
+        if (data.sl_price) {
+            slLine = candleSeries.createPriceLine({
+                price: data.sl_price,
+                color: '#ff5252',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'SL',
+            });
+        }
+
+        if (data.tp_price) {
+            tpLine = candleSeries.createPriceLine({
+                price: data.tp_price,
+                color: '#00e676',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'TP',
+            });
+        }
+    }
+
+    async function loadCandles(symbol) {
+        if (!symbol) return;
+        try {
+            const res = await fetch('/api/ohlcv/' + symbolKey(symbol) + '/' + TIMEFRAME);
+            if (!res.ok) return;
+            const candles = await res.json();
+            if (candles.error) {
+                console.error('OHLCV error:', candles.error);
+                return;
+            }
+            candleSeries.setData(candles);
+
+            const volumes = candles.map(c => ({
+                time: c.time,
+                value: c.volume,
+                color: c.close >= c.open ? 'rgba(0,230,118,0.25)' : 'rgba(255,82,82,0.25)',
+            }));
+            volumeSeries.setData(volumes);
+
+            tvChart.timeScale().fitContent();
+        } catch (e) {
+            console.error('Load candles error:', e);
+        }
+    }
+
+    async function refreshCandles() {
+        if (!tradeData || !tradeData.symbol) return;
+        try {
+            const res = await fetch('/api/ohlcv/' + symbolKey(tradeData.symbol) + '/' + TIMEFRAME);
+            if (!res.ok) return;
+            const candles = await res.json();
+            if (candles.error) return;
+            candleSeries.setData(candles);
+
+            const volumes = candles.map(c => ({
+                time: c.time,
+                value: c.volume,
+                color: c.close >= c.open ? 'rgba(0,230,118,0.25)' : 'rgba(255,82,82,0.25)',
+            }));
+            volumeSeries.setData(volumes);
+        } catch (e) {
+            console.error('Refresh candles error:', e);
+        }
+    }
+
+    /* ---------- Init ---------- */
+
+    async function init() {
+        initChart();
+
+        const data = await fetchPosition();
+        if (!data || data.error) {
+            $('tv-chart').innerHTML = '<p class="loading-msg">Сделка не найдена</p>';
+            $('details-tbody').innerHTML = '<tr><td colspan="2" class="loading-msg">Сделка не найдена</td></tr>';
+            return;
+        }
+
+        updateInfo(data);
+        await loadCandles(data.symbol);
+        updateChartLines(data);
+
+        // Auto-refresh: position data every 3s, candles every 30s
+        if (data.status === 'open') {
+            setInterval(async () => {
+                const d = await fetchPosition();
+                if (d && !d.error) updateInfo(d);
+            }, 3000);
+        }
+
+        setInterval(refreshCandles, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

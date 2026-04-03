@@ -279,7 +279,21 @@ class ScalperBot:
 
     async def run(self):
         """Main loop: start(), then tick() every scan_interval seconds."""
-        await self.start()
+        # Retry exchange connection with backoff
+        for attempt in range(1, 6):
+            try:
+                await self.start()
+                break
+            except Exception:
+                wait = min(attempt * 10, 60)
+                log.warning('Exchange connection failed (attempt %d/5), retry in %ds',
+                            attempt, wait, exc_info=True)
+                if attempt == 5:
+                    log.error('Could not connect to exchange after 5 attempts. '
+                              'Bot will run without trading until reconnected.')
+                    self._running = True
+                else:
+                    await asyncio.sleep(wait)
 
         try:
             while self._running:
