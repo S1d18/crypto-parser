@@ -106,11 +106,12 @@ class SignalEngine:
             elif close[last] < close[last - 3]:
                 short_reasons.append('momentum')
 
-        # --- pick dominant direction, need >= 2 reasons -------------------
-        if len(long_reasons) >= 2 and len(long_reasons) >= len(short_reasons):
+        # --- pick dominant direction, need >= min_signals reasons ----------
+        min_sig = getattr(cfg, 'min_signals', 2)
+        if len(long_reasons) >= min_sig and len(long_reasons) >= len(short_reasons):
             direction = 'long'
             reasons = long_reasons
-        elif len(short_reasons) >= 2:
+        elif len(short_reasons) >= min_sig:
             direction = 'short'
             reasons = short_reasons
         else:
@@ -119,6 +120,12 @@ class SignalEngine:
         # --- adaptive SL / TP --------------------------------------------
         entry_price = float(close[last])
         sl_distance = atr_val * cfg.atr_sl_multiplier
+
+        # Минимальный SL — не менее min_sl_pct% от цены
+        min_sl_pct = getattr(cfg, 'min_sl_pct', 1.5)
+        min_sl_distance = entry_price * min_sl_pct / 100
+        if sl_distance < min_sl_distance:
+            sl_distance = min_sl_distance
 
         if direction == 'long':
             sl_price = entry_price - sl_distance

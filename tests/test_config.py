@@ -16,7 +16,7 @@ class TestConfigDefaults:
 
         # Balance and positions
         assert cfg.balance == 200.0
-        assert cfg.leverage == 20
+        assert cfg.leverage == 10
         assert cfg.max_risk_per_trade == 0.5
 
         # Risk management
@@ -26,7 +26,7 @@ class TestConfigDefaults:
 
         # Scanning
         assert cfg.scan_interval == 30
-        assert cfg.scalp_timeframe == '3m'
+        assert cfg.scalp_timeframe == '5m'
         assert cfg.trend_timeframe == '15m'
         assert cfg.top_n_coins == 50
 
@@ -34,14 +34,14 @@ class TestConfigDefaults:
         assert cfg.taker_fee == 0.00055
 
         # Indicators
-        assert cfg.atr_sl_multiplier == 1.5
+        assert cfg.atr_sl_multiplier == 2.0
         assert cfg.tp_ratio == 2.0
-        assert cfg.adx_min == 20
+        assert cfg.adx_min == 25
         assert cfg.ema_fast == 9
         assert cfg.ema_slow == 21
         assert cfg.rsi_period == 14
-        assert cfg.rsi_oversold == 35
-        assert cfg.rsi_overbought == 65
+        assert cfg.rsi_oversold == 30
+        assert cfg.rsi_overbought == 70
         assert cfg.atr_period == 14
         assert cfg.adx_period == 14
         assert cfg.volume_ma_period == 20
@@ -98,7 +98,7 @@ class TestConfigFromEnv:
         assert cfg.bybit_api_secret == ''
         assert cfg.bybit_demo is True
         assert cfg.balance == 200.0
-        assert cfg.leverage == 20
+        assert cfg.leverage == 10
         assert cfg.web_port == 5001
 
     def test_config_from_env_bybit_demo_variants(self, monkeypatch):
