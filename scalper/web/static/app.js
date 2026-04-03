@@ -9,6 +9,8 @@ const CLOSE_REASONS = {
     sl_hit: 'Stop Loss',
     signal: 'Сигнал',
     signal_reversal: 'Разворот сигнала',
+    smart_tp: 'Умный TP',
+    market_signal: 'Рыночный сигнал',
     breakeven: 'Безубыток',
     manual: 'Вручную',
     trailing: 'Trailing Stop',

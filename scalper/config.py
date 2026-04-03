@@ -40,6 +40,7 @@ class Config:
     # Indicators
     atr_sl_multiplier: float = 1.5
     tp_ratio: float = 2.0
+    min_profit_usd: float = 3.0       # забрать прибыль если >= $3 и цена откатывает
     adx_min: int = 20
     ema_fast: int = 9
     ema_slow: int = 21

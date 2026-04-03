@@ -11,6 +11,7 @@ from scalper.scanner import Scanner
 from scalper.signals import SignalEngine
 from scalper.risk import RiskManager, TrailingStop
 from scalper.storage import Storage
+from scalper.market_data import MarketData
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class ScalperBot:
         self._risk = RiskManager(config)
         self._storage = Storage()
         self._signal_engine = SignalEngine(config)
+        self._market_data = MarketData(self._exchange)
         self._open_positions: dict[int, dict] = {}  # trade_id -> {trade, trailing}
         self._last_prices: dict[str, float] = {}    # symbol -> last known price
         self._running = False
@@ -179,6 +181,33 @@ class ScalperBot:
                 closed_ids.append(trade_id)
                 continue
 
+            # --- Умная фиксация: PnL >= min_profit и цена начала откатывать ---
+            qty = trade['qty']
+            margin = trade.get('margin', entry * qty / self.cfg.leverage)
+            if direction == 'long':
+                pnl_now = (price - entry) * qty
+            else:
+                pnl_now = (entry - price) * qty
+            fees = (entry * qty + price * qty) * self.cfg.taker_fee
+            net_pnl = pnl_now - fees
+
+            # Отслеживаем пиковый PnL
+            peak_key = f'peak_pnl_{trade_id}'
+            peak_pnl = pos.get(peak_key, 0)
+            if net_pnl > peak_pnl:
+                pos[peak_key] = net_pnl
+                peak_pnl = net_pnl
+
+            # Если PnL был >= min_profit и откатил на 30% от пика → забираем
+            if peak_pnl >= self.cfg.min_profit_usd and net_pnl > 0:
+                pullback = (peak_pnl - net_pnl) / peak_pnl if peak_pnl > 0 else 0
+                if pullback >= 0.3:
+                    log.info('Smart take profit #%d %s: peak=$%.2f, now=$%.2f, pullback=%.0f%%',
+                             trade_id, trade['symbol'], peak_pnl, net_pnl, pullback * 100)
+                    await self._close_trade(trade_id, price, 'smart_tp')
+                    closed_ids.append(trade_id)
+                    continue
+
             # --- SL hit (trailing) ---
             if trailing.is_hit(price):
                 reason = 'breakeven' if pos.get('breakeven_set') and \
@@ -186,6 +215,34 @@ class ScalperBot:
                 await self._close_trade(trade_id, price, reason)
                 closed_ids.append(trade_id)
                 continue
+
+            # --- Market data: стакан, funding, OI ---
+            try:
+                mkt = await self._market_data.get_exit_signals(trade['symbol'], direction)
+                if mkt['should_exit'] and net_pnl > 0:
+                    log.info('Market exit #%d %s: score=%.2f reasons=%s pnl=$%.2f',
+                             trade_id, trade['symbol'], mkt['score'],
+                             mkt['reasons'], net_pnl)
+                    await self._close_trade(trade_id, price, 'market_signal')
+                    closed_ids.append(trade_id)
+                    continue
+                elif mkt['tighten_sl']:
+                    # Подтянуть стоп на 50% ближе к текущей цене
+                    old_sl = trailing.current_sl
+                    if direction == 'long':
+                        new_sl = price - (price - old_sl) * 0.5
+                        if new_sl > old_sl:
+                            trailing.current_sl = new_sl
+                            log.info('Tightened SL #%d %s: %.4f → %.4f (market pressure)',
+                                     trade_id, trade['symbol'], old_sl, new_sl)
+                    else:
+                        new_sl = price + (old_sl - price) * 0.5
+                        if new_sl < old_sl:
+                            trailing.current_sl = new_sl
+                            log.info('Tightened SL #%d %s: %.4f → %.4f (market pressure)',
+                                     trade_id, trade['symbol'], old_sl, new_sl)
+            except Exception:
+                log.debug('Market data check failed for %s', trade['symbol'], exc_info=True)
 
             # --- Закрытие по сигналу разворота индикаторов ---
             try:
