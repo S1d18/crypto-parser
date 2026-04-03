@@ -8,6 +8,8 @@ const CLOSE_REASONS = {
     sl: 'Stop Loss',
     sl_hit: 'Stop Loss',
     signal: 'Сигнал',
+    signal_reversal: 'Разворот сигнала',
+    breakeven: 'Безубыток',
     manual: 'Вручную',
     trailing: 'Trailing Stop',
 };

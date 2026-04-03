@@ -144,23 +144,21 @@ class TestGetPrice:
 class TestExchangeInit:
     """Test Exchange constructor sets up ccxt correctly."""
 
-    def test_sandbox_mode_enabled(self):
+    def test_demo_mode_enabled(self):
         cfg = Config(bybit_api_key='k', bybit_api_secret='s', bybit_demo=True)
         with patch('scalper.exchange.ccxt_async') as mock_ccxt:
             mock_bybit = MagicMock()
-            mock_bybit.set_sandbox_mode = MagicMock()
             mock_ccxt.bybit.return_value = mock_bybit
             Exchange(cfg)
-            mock_bybit.set_sandbox_mode.assert_called_once_with(True)
+            mock_bybit.enable_demo_trading.assert_called_once_with(True)
 
-    def test_sandbox_mode_disabled(self):
+    def test_demo_mode_disabled(self):
         cfg = Config(bybit_api_key='k', bybit_api_secret='s', bybit_demo=False)
         with patch('scalper.exchange.ccxt_async') as mock_ccxt:
             mock_bybit = MagicMock()
-            mock_bybit.set_sandbox_mode = MagicMock()
             mock_ccxt.bybit.return_value = mock_bybit
             Exchange(cfg)
-            mock_bybit.set_sandbox_mode.assert_not_called()
+            mock_bybit.enable_demo_trading.assert_not_called()
 
 
 class TestStartAndClose:
@@ -169,6 +167,7 @@ class TestStartAndClose:
     @pytest.mark.asyncio
     async def test_start_loads_markets(self, exchange):
         exchange._exchange.load_markets = AsyncMock()
+        exchange._exchange.session = None  # no existing session
         await exchange.start()
         exchange._exchange.load_markets.assert_called_once()
 

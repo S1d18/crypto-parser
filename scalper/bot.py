@@ -8,6 +8,7 @@ import logging
 from scalper.config import Config
 from scalper.exchange import Exchange
 from scalper.scanner import Scanner
+from scalper.signals import SignalEngine
 from scalper.risk import RiskManager, TrailingStop
 from scalper.storage import Storage
 
@@ -23,6 +24,7 @@ class ScalperBot:
         self._scanner = Scanner(config, exchange=self._exchange)
         self._risk = RiskManager(config)
         self._storage = Storage()
+        self._signal_engine = SignalEngine(config)
         self._open_positions: dict[int, dict] = {}  # trade_id -> {trade, trailing}
         self._running = False
         self._callbacks: list = []
@@ -118,7 +120,7 @@ class ScalperBot:
     # ------------------------------------------------------------------
 
     async def _check_open_positions(self):
-        """For each open position: get price, update trailing, check TP/SL hit."""
+        """For each open position: get price, update trailing, check TP/SL/signal/breakeven."""
         closed_ids = []
 
         for trade_id, pos in self._open_positions.items():
@@ -134,22 +136,52 @@ class ScalperBot:
             # Update trailing stop
             trailing.update(price)
 
-            # Check TP hit
             direction = trade['direction']
+            entry = trade['entry_price']
             tp = trade['tp_price']
+
+            # --- Безубыток: цена прошла 50% к TP → SL на вход ---
+            if not pos.get('breakeven_set'):
+                halfway = entry + (tp - entry) * 0.5 if direction == 'long' \
+                    else entry - (entry - tp) * 0.5
+                be_hit = (direction == 'long' and price >= halfway) or \
+                         (direction == 'short' and price <= halfway)
+                if be_hit:
+                    trailing.current_sl = entry
+                    pos['breakeven_set'] = True
+                    log.info('Breakeven set for #%d %s @ %.4f (SL moved to entry %.4f)',
+                             trade_id, trade['symbol'], price, entry)
+
+            # --- TP hit ---
             tp_hit = (direction == 'long' and price >= tp) or \
                      (direction == 'short' and price <= tp)
-
             if tp_hit:
                 await self._close_trade(trade_id, price, 'tp')
                 closed_ids.append(trade_id)
                 continue
 
-            # Check SL hit (trailing)
+            # --- SL hit (trailing) ---
             if trailing.is_hit(price):
-                await self._close_trade(trade_id, price, 'sl')
+                reason = 'breakeven' if pos.get('breakeven_set') and \
+                    abs(trailing.current_sl - entry) < abs(entry * 0.001) else 'sl'
+                await self._close_trade(trade_id, price, reason)
                 closed_ids.append(trade_id)
                 continue
+
+            # --- Закрытие по сигналу разворота индикаторов ---
+            try:
+                ohlcv = await self._exchange.fetch_ohlcv(
+                    trade['symbol'], self.cfg.scalp_timeframe, limit=100)
+                signal = self._signal_engine.evaluate(ohlcv)
+                if signal and signal.direction != direction:
+                    log.info('Signal reversal for #%d %s: was %s, now %s',
+                             trade_id, trade['symbol'], direction, signal.direction)
+                    await self._close_trade(trade_id, price, 'signal_reversal')
+                    closed_ids.append(trade_id)
+                    continue
+            except Exception:
+                log.debug('Could not check signal reversal for %s', trade['symbol'],
+                          exc_info=True)
 
         # Remove closed positions
         for tid in closed_ids:
