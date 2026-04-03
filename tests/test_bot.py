@@ -143,20 +143,23 @@ class TestBotSkipsWhenPaused:
         bot._risk = MagicMock()
         bot._risk.can_trade.return_value = True
 
-        # Already have an open position
+        # All 3 slots filled
         bot._storage = MagicMock()
         bot._storage.get_open_trades.return_value = []
-        bot._open_positions = {
-            1: {'trade': {'id': 1, 'symbol': 'BTC/USDT:USDT', 'direction': 'long',
+        trade_mock = lambda sym: {'trade': {'id': 1, 'symbol': sym, 'direction': 'long',
                           'entry_price': 100.0, 'sl_price': 98.0, 'tp_price': 104.0,
                           'qty': 20.0, 'leverage': 20, 'margin': 100.0},
                 'trailing': MagicMock(update=MagicMock(return_value=98.0),
-                                      is_hit=MagicMock(return_value=False))},
+                                      is_hit=MagicMock(return_value=False))}
+        bot._open_positions = {
+            1: trade_mock('BTC/USDT:USDT'),
+            2: trade_mock('ETH/USDT:USDT'),
+            3: trade_mock('SOL/USDT:USDT'),
         }
 
         asyncio.get_event_loop().run_until_complete(bot.tick())
 
-        # Scanner should NOT be called when already have open position
+        # Scanner should NOT be called when all slots are full
         bot._scanner.scan.assert_not_called()
 
 

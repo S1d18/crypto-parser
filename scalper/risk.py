@@ -40,8 +40,10 @@ class RiskManager:
         self.last_reset_date = datetime.now().date()
 
     def calc_position_size(self, price: float) -> dict:
-        """Returns {'qty': float, 'margin': float, 'position_value': float}"""
-        margin = self.config.balance * self.config.max_risk_per_trade
+        """Returns {'qty': float, 'margin': float, 'position_value': float}
+        Margin is split across max_open_positions."""
+        max_pos = getattr(self.config, 'max_open_positions', 3)
+        margin = self.config.balance * self.config.max_risk_per_trade / max_pos
         position_value = margin * self.config.leverage
         qty = position_value / price
         return {

@@ -108,8 +108,10 @@ class ScalperBot:
             log.info('Risk limits reached, skipping scan')
             return
 
-        # 3. One position at a time
-        if self._open_positions:
+        # 3. Check how many slots available
+        max_pos = self.cfg.max_open_positions
+        open_count = len(self._open_positions)
+        if open_count >= max_pos:
             return
 
         # 4. Scan
@@ -117,9 +119,18 @@ class ScalperBot:
         if not opportunities:
             return
 
-        # 5. Take best
-        best = opportunities[0]
-        await self._open_trade(best)
+        # 5. Open up to available slots, skip symbols we already hold
+        held_symbols = {pos['trade']['symbol'] for pos in self._open_positions.values()}
+        slots = max_pos - open_count
+
+        for opp in opportunities:
+            if slots <= 0:
+                break
+            if opp['symbol'] in held_symbols:
+                continue
+            await self._open_trade(opp)
+            held_symbols.add(opp['symbol'])
+            slots -= 1
 
     # ------------------------------------------------------------------
     # Position management
