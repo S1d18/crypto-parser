@@ -145,7 +145,7 @@ function updatePositions(positions) {
         const dirClass = p.direction === 'long' ? 'direction-long' : 'direction-short';
         const dirLabel = p.direction === 'long' ? 'LONG' : 'SHORT';
         html += `
-        <div class="position-row">
+        <a href="/trade/${p.trade_id}" class="position-row position-row-link">
             <div class="position-field">
                 <span class="position-field-label">Монета</span>
                 <span class="position-field-value">${p.symbol}</span>
@@ -170,7 +170,7 @@ function updatePositions(positions) {
                 <span class="position-field-label">Объём</span>
                 <span class="position-field-value">${p.qty}</span>
             </div>
-        </div>`;
+        </a>`;
     }
     container.innerHTML = html;
 }
@@ -188,7 +188,7 @@ function updateTrades(trades) {
         const dirLabel = t.direction === 'long' ? 'LONG' : 'SHORT';
         const pnl = t.pnl || 0;
         const pnlPct = t.pnl_pct || 0;
-        html += `<tr>
+        html += `<tr class="trade-row-link" onclick="window.location='/trade/${t.id}'">
             <td>${formatTime(t.closed_at)}</td>
             <td>${t.symbol}</td>
             <td class="${dirClass}">${dirLabel}</td>

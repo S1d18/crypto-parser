@@ -223,6 +223,28 @@ body {
     padding: 24px 0;
 }
 
+/* ===== Clickable rows ===== */
+.position-row-link {
+    display: grid;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.position-row-link:hover {
+    background: rgba(68, 138, 255, 0.08);
+}
+
+.trade-row-link {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.trade-row-link:hover {
+    background: rgba(68, 138, 255, 0.08) !important;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 600px) {
     .header {
