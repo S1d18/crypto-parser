@@ -22,3 +22,7 @@ python-socketio>=5.11
 
 # WebSocket client support
 eventlet>=0.33
+
+# Testing
+pytest
+pytest-asyncio
