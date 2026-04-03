@@ -26,6 +26,7 @@ class ScalperBot:
         self._storage = Storage()
         self._signal_engine = SignalEngine(config)
         self._open_positions: dict[int, dict] = {}  # trade_id -> {trade, trailing}
+        self._last_prices: dict[str, float] = {}    # symbol -> last known price
         self._running = False
         self._callbacks: list = []
 
@@ -146,6 +147,7 @@ class ScalperBot:
 
             try:
                 price = await self._exchange.get_price(trade['symbol'])
+                self._last_prices[trade['symbol']] = price
             except Exception:
                 log.warning('Failed to get price for %s', trade['symbol'], exc_info=True)
                 continue
@@ -365,20 +367,47 @@ class ScalperBot:
     def get_status(self) -> dict:
         """Return current status for dashboard."""
         positions_list = []
+        total_unrealized = 0.0
+
         for tid, pos in self._open_positions.items():
+            trade = pos['trade']
+            symbol = trade['symbol']
+            entry = trade['entry_price']
+            qty = trade['qty']
+            direction = trade['direction']
+            margin = trade.get('margin', entry * qty / self.cfg.leverage)
+
+            current_price = self._last_prices.get(symbol, entry)
+
+            # Unrealized PnL
+            if direction == 'long':
+                pnl_gross = (current_price - entry) * qty
+            else:
+                pnl_gross = (entry - current_price) * qty
+            fees = (entry * qty + current_price * qty) * self.cfg.taker_fee
+            pnl = pnl_gross - fees
+            pnl_pct = (pnl / margin * 100) if margin > 0 else 0.0
+            total_unrealized += pnl
+
             positions_list.append({
                 'trade_id': tid,
-                'symbol': pos['trade']['symbol'],
-                'direction': pos['trade']['direction'],
-                'entry_price': pos['trade']['entry_price'],
-                'sl_price': pos['trade']['sl_price'],
-                'tp_price': pos['trade']['tp_price'],
-                'qty': pos['trade']['qty'],
+                'symbol': symbol,
+                'direction': direction,
+                'entry_price': entry,
+                'current_price': float(current_price),
+                'sl_price': trade['sl_price'],
+                'tp_price': trade['tp_price'],
+                'qty': qty,
+                'margin': round(margin, 2),
+                'pnl': round(pnl, 2),
+                'pnl_pct': round(pnl_pct, 2),
             })
 
         return {
             'running': self._running,
             'balance': self.cfg.balance,
+            'unrealized_pnl': round(total_unrealized, 2),
+            'total_balance': round(self.cfg.balance + total_unrealized, 2),
             'open_positions': len(self._open_positions),
             'positions': positions_list,
             'daily_stats': self._storage.get_daily_stats(),

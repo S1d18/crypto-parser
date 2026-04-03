@@ -109,7 +109,15 @@ function updateStatus(data) {
         badge.className = 'badge badge-stopped';
     }
 
-    $('metric-balance').textContent = '$' + (data.balance || 0).toFixed(2);
+    const bal = data.balance || 0;
+    const unrealized = data.unrealized_pnl || 0;
+    const totalBal = data.total_balance || bal;
+    $('metric-balance').textContent = '$' + totalBal.toFixed(2);
+    if (unrealized !== 0) {
+        $('metric-balance').className = 'metric-value ' + pnlClass(unrealized);
+    } else {
+        $('metric-balance').className = 'metric-value';
+    }
 
     const daily = data.daily_stats || {};
     const all = data.all_stats || {};
@@ -146,15 +154,23 @@ function updatePositions(positions) {
     for (const p of positions) {
         const dirClass = p.direction === 'long' ? 'direction-long' : 'direction-short';
         const dirLabel = p.direction === 'long' ? 'LONG' : 'SHORT';
+        const pnl = p.pnl || 0;
+        const pnlPct = p.pnl_pct || 0;
+        const curPrice = p.current_price || p.entry_price;
+        const margin = p.margin || 0;
         html += `
         <a href="/trade/${p.trade_id}" class="position-row position-row-link">
             <div class="position-field">
                 <span class="position-field-label">Монета</span>
-                <span class="position-field-value">${p.symbol}</span>
+                <span class="position-field-value ${dirClass}">${p.symbol.split('/')[0]} ${dirLabel}</span>
             </div>
             <div class="position-field">
-                <span class="position-field-label">Направление</span>
-                <span class="position-field-value ${dirClass}">${dirLabel}</span>
+                <span class="position-field-label">PnL</span>
+                <span class="position-field-value ${pnlClass(pnl)}">${formatPnl(pnl)} (${pnlPct.toFixed(1)}%)</span>
+            </div>
+            <div class="position-field">
+                <span class="position-field-label">Цена</span>
+                <span class="position-field-value">$${curPrice.toFixed(4)}</span>
             </div>
             <div class="position-field">
                 <span class="position-field-label">Вход</span>
@@ -169,8 +185,8 @@ function updatePositions(positions) {
                 <span class="position-field-value pnl-positive">$${p.tp_price.toFixed(4)}</span>
             </div>
             <div class="position-field">
-                <span class="position-field-label">Объём</span>
-                <span class="position-field-value">${p.qty}</span>
+                <span class="position-field-label">Маржа</span>
+                <span class="position-field-value">$${margin.toFixed(2)}</span>
             </div>
         </a>`;
     }
