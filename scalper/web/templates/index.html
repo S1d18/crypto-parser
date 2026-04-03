@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Снайпер — Скальпинг Бот</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <h1 class="logo">&#x1F3AF; Снайпер</h1>
+            <span class="subtitle">Скальпинг бот</span>
+        </div>
+        <div class="header-right">
+            <span id="status-badge" class="badge badge-stopped">Остановлен</span>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Metric Cards -->
+        <section class="metrics-grid">
+            <div class="card metric-card">
+                <div class="metric-label">Баланс</div>
+                <div class="metric-value" id="metric-balance">$0.00</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-label">PnL сегодня</div>
+                <div class="metric-value" id="metric-daily-pnl">$0.00</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-label">Сделок сегодня</div>
+                <div class="metric-value" id="metric-daily-trades">0</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-label">Винрейт</div>
+                <div class="metric-value" id="metric-winrate">0%</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-label">PnL всего</div>
+                <div class="metric-value" id="metric-total-pnl">$0.00</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-label">Всего сделок</div>
+                <div class="metric-value" id="metric-total-trades">0</div>
+            </div>
+        </section>
+
+        <!-- Current Position -->
+        <section class="card" id="position-section">
+            <h2 class="card-title">Текущая позиция</h2>
+            <div id="position-content">
+                <p class="no-data">Нет открытых позиций</p>
+            </div>
+        </section>
+
+        <!-- Equity Curve -->
+        <section class="card">
+            <h2 class="card-title">Кривая баланса</h2>
+            <div class="chart-container">
+                <canvas id="equity-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- Trade History -->
+        <section class="card">
+            <h2 class="card-title">История сделок</h2>
+            <div class="table-wrap">
+                <table class="trades-table">
+                    <thead>
+                        <tr>
+                            <th>Время</th>
+                            <th>Монета</th>
+                            <th>Напр.</th>
+                            <th>Вход</th>
+                            <th>Выход</th>
+                            <th>PnL</th>
+                            <th>Причина</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-tbody">
+                        <tr><td colspan="7" class="no-data">Нет завершённых сделок</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

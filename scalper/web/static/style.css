@@ -1,0 +1,252 @@
+/* ===== Reset & Base ===== */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg: #0a0a1a;
+    --glass: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --green: #00e676;
+    --red: #ff5252;
+    --blue: #448aff;
+    --text: #e0e0f0;
+    --text-dim: #8888aa;
+    --radius: 16px;
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+}
+
+/* ===== Header ===== */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    background: var(--glass);
+    border-bottom: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+}
+
+.header-left {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.subtitle {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+}
+
+/* ===== Badges ===== */
+.badge {
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-running {
+    background: rgba(0, 230, 118, 0.15);
+    color: var(--green);
+    border: 1px solid rgba(0, 230, 118, 0.3);
+}
+
+.badge-stopped {
+    background: rgba(255, 82, 82, 0.15);
+    color: var(--red);
+    border: 1px solid rgba(255, 82, 82, 0.3);
+}
+
+.badge-paused {
+    background: rgba(68, 138, 255, 0.15);
+    color: var(--blue);
+    border: 1px solid rgba(68, 138, 255, 0.3);
+}
+
+/* ===== Container ===== */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* ===== Glass Card ===== */
+.card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 24px;
+    backdrop-filter: blur(10px);
+}
+
+.card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text);
+}
+
+/* ===== Metrics Grid ===== */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+}
+
+.metric-card {
+    text-align: center;
+    padding: 20px 16px;
+}
+
+.metric-label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+/* ===== Position Card ===== */
+.position-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.position-row:last-child {
+    border-bottom: none;
+}
+
+.position-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.position-field-label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.position-field-value {
+    font-weight: 600;
+}
+
+.direction-long {
+    color: var(--green);
+}
+
+.direction-short {
+    color: var(--red);
+}
+
+/* ===== Chart ===== */
+.chart-container {
+    position: relative;
+    height: 300px;
+    width: 100%;
+}
+
+/* ===== Table ===== */
+.table-wrap {
+    overflow-x: auto;
+}
+
+.trades-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.trades-table th {
+    text-align: left;
+    padding: 10px 12px;
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.trades-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.trades-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.pnl-positive {
+    color: var(--green);
+    font-weight: 600;
+}
+
+.pnl-negative {
+    color: var(--red);
+    font-weight: 600;
+}
+
+.no-data {
+    color: var(--text-dim);
+    text-align: center;
+    padding: 24px 0;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 600px) {
+    .header {
+        flex-direction: column;
+        gap: 12px;
+        text-align: center;
+        padding: 16px;
+    }
+
+    .header-left {
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .metric-value {
+        font-size: 1.2rem;
+    }
+
+    .container {
+        padding: 12px 8px;
+    }
+}
