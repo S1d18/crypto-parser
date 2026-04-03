@@ -40,6 +40,12 @@ class Storage:
                 timestamp TEXT NOT NULL
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
         self.conn.commit()
 
     def open_trade(self, symbol: str, direction: str, qty: float,
@@ -124,6 +130,18 @@ class Storage:
         cur = self.conn.cursor()
         cur.execute("SELECT * FROM equity_history ORDER BY id ASC")
         return [dict(row) for row in cur.fetchall()]
+
+    def save_state(self, key: str, value: str):
+        self.conn.execute(
+            "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+            (key, value))
+        self.conn.commit()
+
+    def get_state(self, key: str, default: str = None) -> str | None:
+        row = self.conn.execute(
+            "SELECT value FROM state WHERE key = ?", (key,)
+        ).fetchone()
+        return row['value'] if row else default
 
     def close(self):
         self.conn.close()

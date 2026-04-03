@@ -50,9 +50,15 @@ class ScalperBot:
     # ------------------------------------------------------------------
 
     async def start(self):
-        """Start exchange, recover open positions from DB."""
+        """Start exchange, recover balance and open positions from DB."""
         await self._exchange.start()
         self._running = True
+
+        # Restore balance from DB (survives restarts)
+        saved_balance = self._storage.get_state('balance')
+        if saved_balance is not None:
+            self.cfg.balance = float(saved_balance)
+            log.info('Restored balance from DB: $%.2f', self.cfg.balance)
 
         # Recover open positions
         open_trades = self._storage.get_open_trades()
@@ -289,8 +295,9 @@ class ScalperBot:
             close_reason=reason,
         )
 
-        # Save equity snapshot
+        # Save equity snapshot and persist balance
         self._storage.save_equity_snapshot(self.cfg.balance)
+        self._storage.save_state('balance', str(self.cfg.balance))
 
         log.info(
             'Closed trade #%d %s | reason=%s | PnL=%.2f (%.1f%%)',
