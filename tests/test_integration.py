@@ -90,8 +90,8 @@ async def test_full_cycle(tmp_path, config):
     assert stats['total_pnl'] > 0
     assert config.balance > 200.0
 
-    # Verify close order was placed
-    bot._exchange.close_position.assert_called_once()
+    # Verify close order(s) were placed (may include partial close)
+    assert bot._exchange.close_position.call_count >= 1
 
     bot._storage.close()
 
