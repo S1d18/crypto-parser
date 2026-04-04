@@ -196,10 +196,19 @@ class ScalperBot:
                 pos[peak_key] = net_pnl
                 peak_pnl = net_pnl
 
-            # Если PnL был >= min_profit и откатил на 30% от пика → забираем
+            # --- Умная фиксация прибыли ---
+            # 1. Если PnL >= $10 — забираем сразу (хорошая прибыль, не жадничаем)
+            if net_pnl >= 10.0:
+                log.info('Take profit #%d %s: pnl=$%.2f (>=$10)',
+                         trade_id, trade['symbol'], net_pnl)
+                await self._close_trade(trade_id, price, 'smart_tp')
+                closed_ids.append(trade_id)
+                continue
+
+            # 2. Если PnL был >= $3 и откатил на 20% от пика → забираем
             if peak_pnl >= self.cfg.min_profit_usd and net_pnl > 0:
                 pullback = (peak_pnl - net_pnl) / peak_pnl if peak_pnl > 0 else 0
-                if pullback >= 0.3:
+                if pullback >= 0.2:
                     log.info('Smart take profit #%d %s: peak=$%.2f, now=$%.2f, pullback=%.0f%%',
                              trade_id, trade['symbol'], peak_pnl, net_pnl, pullback * 100)
                     await self._close_trade(trade_id, price, 'smart_tp')
@@ -442,13 +451,13 @@ class ScalperBot:
             await self.stop()
 
     async def _loop_positions(self):
-        """Fast loop: check open positions every 2 seconds."""
+        """Fast loop: check open positions every 1 second."""
         while self._running:
             try:
                 await self.tick_positions()
             except Exception:
                 log.error('Position tick error', exc_info=True)
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
     async def _loop_scan(self):
         """Slow loop: scan for new entries every scan_interval seconds."""
