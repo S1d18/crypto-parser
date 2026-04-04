@@ -1,6 +1,6 @@
 /* ===== Sniper Scalper Bot — Dashboard JS ===== */
 
-const POLL_INTERVAL = 5000;
+const POLL_INTERVAL = 2000;
 
 const CLOSE_REASONS = {
     tp: 'Take Profit',

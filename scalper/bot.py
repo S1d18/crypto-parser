@@ -138,19 +138,33 @@ class ScalperBot:
     # ------------------------------------------------------------------
 
     async def _check_open_positions(self):
-        """For each open position: get price, update trailing, check TP/SL/signal/breakeven."""
+        """For each open position: fast price check + SL/TP/trailing.
+        Heavy checks (market data, signal reversal) run on slower timer."""
         closed_ids = []
+        import time
+        now = time.time()
+
+        # Fetch all prices in parallel (one request per position)
+        price_tasks = {}
+        for trade_id, pos in self._open_positions.items():
+            symbol = pos['trade']['symbol']
+            price_tasks[trade_id] = self._exchange.get_price(symbol)
+
+        prices = {}
+        for trade_id, task in price_tasks.items():
+            try:
+                prices[trade_id] = await task
+            except Exception:
+                log.warning('Price fetch failed for #%d', trade_id)
 
         for trade_id, pos in self._open_positions.items():
+            if trade_id not in prices:
+                continue
+
             trade = pos['trade']
             trailing: TrailingStop = pos['trailing']
-
-            try:
-                price = await self._exchange.get_price(trade['symbol'])
-                self._last_prices[trade['symbol']] = price
-            except Exception:
-                log.warning('Failed to get price for %s', trade['symbol'], exc_info=True)
-                continue
+            price = prices[trade_id]
+            self._last_prices[trade['symbol']] = price
 
             # Update trailing stop
             trailing.update(price)
@@ -158,6 +172,7 @@ class ScalperBot:
             direction = trade['direction']
             entry = trade['entry_price']
             tp = trade['tp_price']
+            qty = trade['qty']
 
             # --- Безубыток: цена прошла 50% к TP → SL на вход ---
             if not pos.get('breakeven_set'):
@@ -168,7 +183,7 @@ class ScalperBot:
                 if be_hit:
                     trailing.current_sl = entry
                     pos['breakeven_set'] = True
-                    log.info('Breakeven set for #%d %s @ %.4f (SL moved to entry %.4f)',
+                    log.info('Breakeven set for #%d %s @ %.4f (SL→entry %.4f)',
                              trade_id, trade['symbol'], price, entry)
 
             # --- TP hit ---
@@ -179,8 +194,7 @@ class ScalperBot:
                 closed_ids.append(trade_id)
                 continue
 
-            # --- Умная фиксация: PnL >= min_profit и цена начала откатывать ---
-            qty = trade['qty']
+            # --- PnL расчёт ---
             margin = trade.get('margin', entry * qty / self.cfg.leverage)
             if direction == 'long':
                 pnl_now = (price - entry) * qty
@@ -189,15 +203,13 @@ class ScalperBot:
             fees = (entry * qty + price * qty) * self.cfg.taker_fee
             net_pnl = pnl_now - fees
 
-            # Отслеживаем пиковый PnL
             peak_key = f'peak_pnl_{trade_id}'
             peak_pnl = pos.get(peak_key, 0)
             if net_pnl > peak_pnl:
                 pos[peak_key] = net_pnl
                 peak_pnl = net_pnl
 
-            # --- 1. Ступенчатая фиксация с ATR буфером ---
-            # Чем больше прибыль — тем жёстче стоп, но с запасом на шум
+            # --- Ступенчатая фиксация с ATR буфером ---
             if peak_pnl >= self.cfg.min_profit_usd:
                 if peak_pnl >= 20:
                     lock_pct = 0.75
@@ -210,8 +222,6 @@ class ScalperBot:
 
                 lock_pnl = peak_pnl * lock_pct
                 fees_approx = entry * qty * self.cfg.taker_fee * 2
-
-                # ATR буфер — стоп не ближе чем 1.5% от текущей цены (шум не выбьет)
                 atr_buf = pos.get('atr_buffer', entry * 0.015)
 
                 if direction == 'long':
@@ -235,7 +245,7 @@ class ScalperBot:
                                      trade_id, trade['symbol'], old_sl, lock_price,
                                      lock_pct * 100, peak_pnl)
 
-            # --- 2. Частичное закрытие: 30% при $5+ прибыли ---
+            # --- Частичное закрытие: 30% при $5+ прибыли ---
             if net_pnl >= 5.0 and not pos.get('partial_closed'):
                 partial_qty = qty * 0.3
                 try:
@@ -256,52 +266,84 @@ class ScalperBot:
                 closed_ids.append(trade_id)
                 continue
 
-            # --- Market data: стакан, funding, OI ---
+        # Remove closed positions from fast checks
+        for tid in closed_ids:
+            del self._open_positions[tid]
+
+        # --- Тяжёлые проверки: параллельно для всех позиций, раз в 15 сек ---
+        heavy_positions = []
+        for trade_id, pos in list(self._open_positions.items()):
+            last_heavy = pos.get('last_heavy_check', 0)
+            if now - last_heavy >= 15:
+                heavy_positions.append((trade_id, pos))
+                pos['last_heavy_check'] = now
+
+        if heavy_positions:
+            await self._heavy_checks(heavy_positions)
+
+    async def _heavy_checks(self, positions: list):
+        """Market data + signal reversal — all positions in parallel."""
+
+        async def check_one(trade_id, pos):
+            trade = pos['trade']
+            trailing = pos['trailing']
+            direction = trade['direction']
+            symbol = trade['symbol']
+            price = self._last_prices.get(symbol, trade['entry_price'])
+            entry = trade['entry_price']
+            qty = trade['qty']
+
+            if direction == 'long':
+                net_pnl = (price - entry) * qty
+            else:
+                net_pnl = (entry - price) * qty
+            net_pnl -= (entry * qty + price * qty) * self.cfg.taker_fee
+
+            # Market data
             try:
-                mkt = await self._market_data.get_exit_signals(trade['symbol'], direction)
+                mkt = await self._market_data.get_exit_signals(symbol, direction)
                 if mkt['should_exit'] and net_pnl > 0:
                     log.info('Market exit #%d %s: score=%.2f reasons=%s pnl=$%.2f',
-                             trade_id, trade['symbol'], mkt['score'],
-                             mkt['reasons'], net_pnl)
+                             trade_id, symbol, mkt['score'], mkt['reasons'], net_pnl)
                     await self._close_trade(trade_id, price, 'market_signal')
-                    closed_ids.append(trade_id)
-                    continue
+                    return trade_id
                 elif mkt['tighten_sl']:
-                    # Подтянуть стоп на 50% ближе к текущей цене
                     old_sl = trailing.current_sl
                     if direction == 'long':
                         new_sl = price - (price - old_sl) * 0.5
                         if new_sl > old_sl:
                             trailing.current_sl = new_sl
-                            log.info('Tightened SL #%d %s: %.4f → %.4f (market pressure)',
-                                     trade_id, trade['symbol'], old_sl, new_sl)
                     else:
                         new_sl = price + (old_sl - price) * 0.5
                         if new_sl < old_sl:
                             trailing.current_sl = new_sl
-                            log.info('Tightened SL #%d %s: %.4f → %.4f (market pressure)',
-                                     trade_id, trade['symbol'], old_sl, new_sl)
             except Exception:
-                log.debug('Market data check failed for %s', trade['symbol'], exc_info=True)
+                pass
 
-            # --- Закрытие по сигналу разворота индикаторов ---
+            # Signal reversal
             try:
-                ohlcv = await self._exchange.fetch_ohlcv(
-                    trade['symbol'], self.cfg.scalp_timeframe, limit=100)
+                ohlcv = await self._exchange.fetch_ohlcv(symbol, self.cfg.scalp_timeframe, limit=100)
                 signal = self._signal_engine.evaluate(ohlcv)
                 if signal and signal.direction != direction:
-                    log.info('Signal reversal for #%d %s: was %s, now %s',
-                             trade_id, trade['symbol'], direction, signal.direction)
+                    log.info('Signal reversal #%d %s: %s→%s',
+                             trade_id, symbol, direction, signal.direction)
                     await self._close_trade(trade_id, price, 'signal_reversal')
-                    closed_ids.append(trade_id)
-                    continue
+                    return trade_id
             except Exception:
-                log.debug('Could not check signal reversal for %s', trade['symbol'],
-                          exc_info=True)
+                pass
 
-        # Remove closed positions
-        for tid in closed_ids:
-            del self._open_positions[tid]
+            return None
+
+        # Запускаем все проверки параллельно
+        results = await asyncio.gather(
+            *[check_one(tid, pos) for tid, pos in positions],
+            return_exceptions=True
+        )
+
+        # Удаляем закрытые позиции
+        for r in results:
+            if isinstance(r, int) and r in self._open_positions:
+                del self._open_positions[r]
 
     async def _open_trade(self, opportunity: dict):
         """Open new trade: place real order on exchange, save to DB."""
