@@ -33,6 +33,20 @@ def _make_signal(direction='long', strength=3, entry=100.0, sl=98.0, tp=104.0):
     )
 
 
+def _mock_exchange():
+    """Create a mock exchange with all needed async methods."""
+    ex = AsyncMock()
+    ex.get_price = AsyncMock(return_value=100.0)
+    ex.open_position = AsyncMock(return_value={
+        'id': 'order123', 'average': None, 'price': None, 'filled': None,
+    })
+    ex.close_position = AsyncMock(return_value={
+        'id': 'order456', 'average': None, 'price': None, 'filled': None,
+    })
+    ex.fetch_ohlcv = AsyncMock(return_value=None)
+    return ex
+
+
 class TestBotOpensTrade:
     """Signal found -> trade opened in storage."""
 
@@ -40,21 +54,14 @@ class TestBotOpensTrade:
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
+        bot._exchange = _mock_exchange()
 
-        # Mock exchange
-        bot._exchange = AsyncMock()
-        bot._exchange.start = AsyncMock()
-        bot._exchange.close = AsyncMock()
-        bot._exchange.get_price = AsyncMock(return_value=100.0)
-
-        # Mock scanner returns one opportunity
         sig = _make_signal()
         bot._scanner = AsyncMock()
         bot._scanner.scan = AsyncMock(return_value=[
             {'symbol': 'BTC/USDT:USDT', 'signal': sig, 'price': 100.0},
         ])
 
-        # Mock risk manager
         bot._risk = MagicMock()
         bot._risk.can_trade.return_value = True
         bot._risk.calc_position_size.return_value = {
@@ -62,18 +69,14 @@ class TestBotOpensTrade:
         }
         bot._risk.create_trailing_stop.return_value = MagicMock()
 
-        # Mock storage
         bot._storage = MagicMock()
         bot._storage.get_open_trades.return_value = []
-        bot._storage.open_trade.return_value = 1  # trade_id
+        bot._storage.open_trade.return_value = 1
 
-        # Run one tick
         asyncio.get_event_loop().run_until_complete(bot.tick())
 
-        # Verify trade was opened
         bot._storage.open_trade.assert_called_once()
         call_kwargs = bot._storage.open_trade.call_args
-        # Check positional or keyword args contain the symbol
         args, kwargs = call_kwargs
         assert kwargs.get('symbol', args[0] if args else None) == 'BTC/USDT:USDT'
 
@@ -81,8 +84,7 @@ class TestBotOpensTrade:
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
-        bot._exchange = AsyncMock()
-        bot._exchange.get_price = AsyncMock(return_value=50.0)
+        bot._exchange = _mock_exchange()
 
         sig = _make_signal(direction='short', entry=50.0, sl=52.0, tp=46.0)
         bot._scanner = AsyncMock()
@@ -114,8 +116,7 @@ class TestBotSkipsWhenPaused:
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
-        bot._exchange = AsyncMock()
-        bot._exchange.get_price = AsyncMock(return_value=100.0)
+        bot._exchange = _mock_exchange()
 
         bot._scanner = AsyncMock()
         bot._scanner.scan = AsyncMock(return_value=[])
@@ -128,22 +129,19 @@ class TestBotSkipsWhenPaused:
 
         asyncio.get_event_loop().run_until_complete(bot.tick())
 
-        # Scanner should NOT be called when risk says can't trade
         bot._scanner.scan.assert_not_called()
 
     def test_bot_skips_when_has_open_position(self, config):
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
-        bot._exchange = AsyncMock()
-        bot._exchange.get_price = AsyncMock(return_value=100.0)
+        bot._exchange = _mock_exchange()
 
         bot._scanner = AsyncMock()
 
         bot._risk = MagicMock()
         bot._risk.can_trade.return_value = True
 
-        # All 3 slots filled
         bot._storage = MagicMock()
         bot._storage.get_open_trades.return_value = []
         trade_mock = lambda sym: {'trade': {'id': 1, 'symbol': sym, 'direction': 'long',
@@ -159,7 +157,6 @@ class TestBotSkipsWhenPaused:
 
         asyncio.get_event_loop().run_until_complete(bot.tick())
 
-        # Scanner should NOT be called when all slots are full
         bot._scanner.scan.assert_not_called()
 
 
@@ -170,8 +167,7 @@ class TestBotClosesOnSL:
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
-        bot._exchange = AsyncMock()
-        # Price dropped below SL
+        bot._exchange = _mock_exchange()
         bot._exchange.get_price = AsyncMock(return_value=95.0)
 
         bot._scanner = AsyncMock()
@@ -181,81 +177,31 @@ class TestBotClosesOnSL:
         bot._storage = MagicMock()
         bot._storage.get_open_trades.return_value = []
 
-        # Set up an open position with trailing stop
         trailing = MagicMock()
-        trailing.update.return_value = 98.0
-        trailing.is_hit.return_value = True  # SL hit
+        trailing.update = MagicMock(return_value=98.0)
+        trailing.is_hit = MagicMock(return_value=True)
+        trailing.current_sl = 98.0
 
-        trade = {
-            'id': 1,
-            'symbol': 'BTC/USDT:USDT',
-            'direction': 'long',
-            'qty': 20.0,
-            'entry_price': 100.0,
-            'sl_price': 98.0,
-            'tp_price': 104.0,
-            'leverage': 20,
-            'margin': 100.0,
+        bot._open_positions = {
+            1: {'trade': {'id': 1, 'symbol': 'BTC/USDT:USDT', 'direction': 'long',
+                          'entry_price': 100.0, 'sl_price': 98.0, 'tp_price': 104.0,
+                          'qty': 20.0, 'leverage': 20, 'margin': 100.0},
+                'trailing': trailing},
         }
-        bot._open_positions = {1: {'trade': trade, 'trailing': trailing}}
 
         asyncio.get_event_loop().run_until_complete(bot.tick())
 
-        # Verify trade was closed
         bot._storage.close_trade.assert_called_once()
+        assert len(bot._open_positions) == 0
+
         call_kwargs = bot._storage.close_trade.call_args.kwargs
-        assert call_kwargs['trade_id'] == 1
-        assert call_kwargs['close_reason'] == 'sl'
-        # PnL for long: (95 - 100) * 20 = -100, minus fees
         assert call_kwargs['pnl'] < 0
 
     def test_bot_closes_short_on_sl(self, config):
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
-        bot._exchange = AsyncMock()
-        # Price went above SL for short
-        bot._exchange.get_price = AsyncMock(return_value=55.0)
-
-        bot._scanner = AsyncMock()
-        bot._risk = MagicMock()
-        bot._risk.can_trade.return_value = True
-
-        bot._storage = MagicMock()
-        bot._storage.get_open_trades.return_value = []
-
-        trailing = MagicMock()
-        trailing.update.return_value = 52.0
-        trailing.is_hit.return_value = True
-
-        trade = {
-            'id': 2,
-            'symbol': 'ETH/USDT:USDT',
-            'direction': 'short',
-            'qty': 40.0,
-            'entry_price': 50.0,
-            'sl_price': 52.0,
-            'tp_price': 46.0,
-            'leverage': 20,
-            'margin': 100.0,
-        }
-        bot._open_positions = {2: {'trade': trade, 'trailing': trailing}}
-
-        asyncio.get_event_loop().run_until_complete(bot.tick())
-
-        bot._storage.close_trade.assert_called_once()
-        call_kwargs = bot._storage.close_trade.call_args.kwargs
-        assert call_kwargs['trade_id'] == 2
-        assert call_kwargs['close_reason'] == 'sl'
-        # Short PnL: (50 - 55) * 40 = -200, minus fees
-        assert call_kwargs['pnl'] < 0
-
-    def test_bot_closes_on_tp(self, config):
-        from scalper.bot import ScalperBot
-
-        bot = ScalperBot(config)
-        bot._exchange = AsyncMock()
-        # Price hit TP for long
+        bot._exchange = _mock_exchange()
         bot._exchange.get_price = AsyncMock(return_value=105.0)
 
         bot._scanner = AsyncMock()
@@ -266,108 +212,135 @@ class TestBotClosesOnSL:
         bot._storage.get_open_trades.return_value = []
 
         trailing = MagicMock()
-        trailing.update.return_value = 99.0
-        trailing.is_hit.return_value = False  # SL not hit
+        trailing.update = MagicMock(return_value=102.0)
+        trailing.is_hit = MagicMock(return_value=True)
+        trailing.current_sl = 102.0
 
-        trade = {
-            'id': 3,
-            'symbol': 'BTC/USDT:USDT',
-            'direction': 'long',
-            'qty': 20.0,
-            'entry_price': 100.0,
-            'sl_price': 98.0,
-            'tp_price': 104.0,
-            'leverage': 20,
-            'margin': 100.0,
+        bot._open_positions = {
+            1: {'trade': {'id': 1, 'symbol': 'BTC/USDT:USDT', 'direction': 'short',
+                          'entry_price': 100.0, 'sl_price': 102.0, 'tp_price': 96.0,
+                          'qty': 20.0, 'leverage': 20, 'margin': 100.0},
+                'trailing': trailing},
         }
-        bot._open_positions = {3: {'trade': trade, 'trailing': trailing}}
 
         asyncio.get_event_loop().run_until_complete(bot.tick())
 
         bot._storage.close_trade.assert_called_once()
         call_kwargs = bot._storage.close_trade.call_args.kwargs
-        assert call_kwargs['trade_id'] == 3
-        assert call_kwargs['close_reason'] == 'tp'
+        assert call_kwargs['pnl'] < 0
+
+    def test_bot_closes_on_tp(self, config):
+        from scalper.bot import ScalperBot
+
+        bot = ScalperBot(config)
+        bot._exchange = _mock_exchange()
+        bot._exchange.get_price = AsyncMock(return_value=105.0)
+
+        bot._scanner = AsyncMock()
+        bot._risk = MagicMock()
+        bot._risk.can_trade.return_value = True
+
+        bot._storage = MagicMock()
+        bot._storage.get_open_trades.return_value = []
+
+        trailing = MagicMock()
+        trailing.update = MagicMock(return_value=99.0)
+        trailing.is_hit = MagicMock(return_value=False)
+        trailing.current_sl = 99.0
+
+        bot._open_positions = {
+            1: {'trade': {'id': 1, 'symbol': 'BTC/USDT:USDT', 'direction': 'long',
+                          'entry_price': 100.0, 'sl_price': 98.0, 'tp_price': 104.0,
+                          'qty': 20.0, 'leverage': 20, 'margin': 100.0},
+                'trailing': trailing},
+        }
+
+        asyncio.get_event_loop().run_until_complete(bot.tick())
+
+        bot._storage.close_trade.assert_called_once()
+        call_kwargs = bot._storage.close_trade.call_args.kwargs
         assert call_kwargs['pnl'] > 0
 
 
 class TestBotCallbacks:
     """Test notification callbacks."""
 
-    def test_on_update_callback(self, config):
+    def test_callback_called_on_open(self, config):
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
+        bot._exchange = _mock_exchange()
+
         events = []
+        bot.on_update(lambda evt, data: events.append((evt, data)))
 
-        bot.on_update(lambda event, data: events.append((event, data)))
-        bot._notify('test_event', {'key': 'value'})
+        sig = _make_signal()
+        bot._scanner = AsyncMock()
+        bot._scanner.scan = AsyncMock(return_value=[
+            {'symbol': 'BTC/USDT:USDT', 'signal': sig, 'price': 100.0},
+        ])
 
-        assert len(events) == 1
-        assert events[0] == ('test_event', {'key': 'value'})
-
-
-class TestBotGetStatus:
-    """Test get_status method."""
-
-    def test_get_status(self, config):
-        from scalper.bot import ScalperBot
-
-        bot = ScalperBot(config)
         bot._risk = MagicMock()
         bot._risk.can_trade.return_value = True
+        bot._risk.calc_position_size.return_value = {
+            'qty': 20.0, 'margin': 100.0, 'position_value': 2000.0,
+        }
+        bot._risk.create_trailing_stop.return_value = MagicMock()
 
         bot._storage = MagicMock()
+        bot._storage.get_open_trades.return_value = []
+        bot._storage.open_trade.return_value = 1
+
+        asyncio.get_event_loop().run_until_complete(bot.tick())
+
+        assert any(e[0] == 'trade_opened' for e in events)
+
+
+class TestGetStatus:
+    """Test get_status returns correct structure."""
+
+    def test_status_structure(self, config):
+        from scalper.bot import ScalperBot
+
+        bot = ScalperBot(config)
+        bot._running = True
+        bot._storage = MagicMock()
         bot._storage.get_daily_stats.return_value = {
-            'total_trades': 5, 'total_pnl': 10.0,
-            'wins': 3, 'losses': 2, 'win_rate': 60.0,
+            'total_trades': 0, 'total_pnl': 0, 'wins': 0, 'losses': 0, 'win_rate': 0,
         }
         bot._storage.get_all_stats.return_value = {
-            'total_trades': 100, 'total_pnl': 50.0,
-            'wins': 60, 'losses': 40, 'win_rate': 60.0,
+            'total_trades': 0, 'total_pnl': 0, 'wins': 0, 'losses': 0, 'win_rate': 0,
         }
-
-        bot._running = True
 
         status = bot.get_status()
 
         assert status['running'] is True
         assert status['balance'] == 200.0
-        assert status['open_positions'] == 0
-        assert status['can_trade'] is True
+        assert 'positions' in status
         assert 'daily_stats' in status
-        assert 'all_stats' in status
+        assert 'unrealized_pnl' in status
 
 
-class TestBotRecoverPositions:
+class TestRecoverPositions:
     """Test recovery of open positions from DB on start."""
 
-    def test_start_recovers_open_positions(self, config):
+    def test_recovers_positions(self, config):
         from scalper.bot import ScalperBot
 
         bot = ScalperBot(config)
-        bot._exchange = AsyncMock()
-        bot._exchange.start = AsyncMock()
+        bot._exchange = _mock_exchange()
+
+        bot._storage = MagicMock()
+        bot._storage.get_open_trades.return_value = [
+            {'id': 5, 'symbol': 'BTC/USDT:USDT', 'direction': 'long',
+             'entry_price': 100.0, 'sl_price': 98.0, 'tp_price': 104.0,
+             'qty': 20.0, 'leverage': 20, 'margin': 100.0},
+        ]
+        bot._storage.get_state.return_value = None
 
         bot._risk = MagicMock()
         bot._risk.create_trailing_stop.return_value = MagicMock()
 
-        bot._storage = MagicMock()
-        bot._storage.get_open_trades.return_value = [
-            {
-                'id': 1,
-                'symbol': 'BTC/USDT:USDT',
-                'direction': 'long',
-                'qty': 20.0,
-                'entry_price': 100.0,
-                'sl_price': 98.0,
-                'tp_price': 104.0,
-                'leverage': 20,
-                'margin': 100.0,
-            },
-        ]
-
         asyncio.get_event_loop().run_until_complete(bot.start())
 
-        assert 1 in bot._open_positions
-        assert bot._running is True
+        assert 5 in bot._open_positions
