@@ -46,6 +46,16 @@ class Storage:
                 value TEXT NOT NULL
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS trade_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                price REAL,
+                details TEXT,
+                timestamp TEXT NOT NULL
+            )
+        """)
         self.conn.commit()
 
     def open_trade(self, symbol: str, direction: str, qty: float,
@@ -129,6 +139,20 @@ class Storage:
     def get_equity_history(self) -> list[dict]:
         cur = self.conn.cursor()
         cur.execute("SELECT * FROM equity_history ORDER BY id ASC")
+        return [dict(row) for row in cur.fetchall()]
+
+    def add_trade_event(self, trade_id: int, event_type: str,
+                        price: float = None, details: str = ''):
+        self.conn.execute(
+            "INSERT INTO trade_events (trade_id, event_type, price, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (trade_id, event_type, price, details, datetime.now().isoformat()))
+        self.conn.commit()
+
+    def get_trade_events(self, trade_id: int) -> list[dict]:
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT * FROM trade_events WHERE trade_id = ? ORDER BY id ASC",
+            (trade_id,))
         return [dict(row) for row in cur.fetchall()]
 
     def save_state(self, key: str, value: str):

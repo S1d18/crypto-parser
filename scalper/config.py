@@ -19,7 +19,7 @@ class Config:
 
     # Balance and positions
     balance: float = 200.0
-    leverage: int = 10                    # было 20 → 10, меньше риска
+    leverage: int = 20
     max_risk_per_trade: float = 0.5
     max_open_positions: int = 3
 
@@ -69,7 +69,7 @@ class Config:
             bybit_api_secret=os.getenv('BYBIT_API_SECRET', ''),
             bybit_demo=_bool(os.getenv('BYBIT_DEMO', 'true')),
             balance=float(os.getenv('BALANCE', '200.0')),
-            leverage=int(os.getenv('LEVERAGE', '10')),
+            leverage=int(os.getenv('LEVERAGE', '20')),
             max_daily_loss=float(os.getenv('MAX_DAILY_LOSS', '30.0')),
             max_consecutive_losses=int(os.getenv('MAX_CONSECUTIVE_LOSSES', '10')),
             scan_interval=int(os.getenv('SCAN_INTERVAL', '10')),
