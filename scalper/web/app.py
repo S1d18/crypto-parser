@@ -75,6 +75,13 @@ def create_app(bot=None, storage=None):
     def trade_page(trade_id):
         return render_template('trade.html', trade_id=trade_id)
 
+    @app.route('/api/trade/<int:trade_id>/events')
+    def api_trade_events(trade_id):
+        """Events log for a trade."""
+        if storage:
+            return jsonify(storage.get_trade_events(trade_id))
+        return jsonify([])
+
     @app.route('/api/ohlcv/<symbol_key>/<timeframe>')
     def api_ohlcv(symbol_key, timeframe):
         """Fetch OHLCV candles for charting (sync ccxt)."""

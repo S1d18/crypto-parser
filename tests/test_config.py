@@ -16,7 +16,7 @@ class TestConfigDefaults:
 
         # Balance and positions
         assert cfg.balance == 200.0
-        assert cfg.leverage == 10
+        assert cfg.leverage == 20
         assert cfg.max_risk_per_trade == 0.5
 
         # Risk management
@@ -72,7 +72,7 @@ class TestConfigFromEnv:
         assert cfg.bybit_api_secret == 'test-secret-456'
         assert cfg.bybit_demo is False
         assert cfg.balance == 500.0
-        assert cfg.leverage == 10
+        assert cfg.leverage == 10  # set via env LEVERAGE=10
         assert cfg.max_daily_loss == 50.0
         assert cfg.max_consecutive_losses == 5
         assert cfg.scan_interval == 15
@@ -98,7 +98,7 @@ class TestConfigFromEnv:
         assert cfg.bybit_api_secret == ''
         assert cfg.bybit_demo is True
         assert cfg.balance == 200.0
-        assert cfg.leverage == 10
+        assert cfg.leverage == 20
         assert cfg.web_port == 5001
 
     def test_config_from_env_bybit_demo_variants(self, monkeypatch):

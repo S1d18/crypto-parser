@@ -240,6 +240,14 @@
             </div>
         </section>
 
+        <!-- Events log -->
+        <section class="card">
+            <h2 class="card-title">История событий</h2>
+            <div id="events-log" style="max-height: 400px; overflow-y: auto;">
+                <p class="loading-msg">Загрузка...</p>
+            </div>
+        </section>
+
         <!-- Trade details table -->
         <section class="card">
             <h2 class="card-title">Детали сделки</h2>
@@ -545,6 +553,62 @@
 
     /* ---------- Init ---------- */
 
+    const EVENT_ICONS = {
+        opened: '🟢',
+        closed: '🔴',
+        breakeven: '🔵',
+        profit_lock: '🔒',
+        partial_close: '💰',
+        signal_reversal: '↩️',
+        market_signal: '📊',
+    };
+
+    const EVENT_NAMES = {
+        opened: 'Открытие',
+        closed: 'Закрытие',
+        breakeven: 'Безубыток',
+        profit_lock: 'Фиксация прибыли',
+        partial_close: 'Частичное закрытие',
+        signal_reversal: 'Разворот сигнала',
+        market_signal: 'Рыночный сигнал',
+    };
+
+    async function loadEvents() {
+        try {
+            const res = await fetch(`/api/trade/${TRADE_ID}/events`);
+            const events = await res.json();
+            const container = $('events-log');
+
+            if (!events.length) {
+                container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Нет событий</p>';
+                return;
+            }
+
+            let html = '';
+            for (const e of events) {
+                const icon = EVENT_ICONS[e.event_type] || '⚡';
+                const name = EVENT_NAMES[e.event_type] || e.event_type;
+                const time = new Date(e.timestamp).toLocaleString('ru-RU', {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                    day: '2-digit', month: '2-digit'
+                });
+                const priceStr = e.price ? `@ $${e.price.toFixed(4)}` : '';
+                html += `<div style="padding:8px 12px;border-bottom:1px solid var(--glass-border);display:flex;gap:10px;align-items:flex-start;">
+                    <span style="font-size:1.1em;">${icon}</span>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;font-size:0.85rem;">${name} ${priceStr}
+                            <span style="color:var(--text-dim);font-weight:400;margin-left:8px;">${time}</span>
+                        </div>
+                        <div style="color:var(--text-dim);font-size:0.8rem;margin-top:2px;">${e.details || ''}</div>
+                    </div>
+                </div>`;
+            }
+            container.innerHTML = html;
+        } catch (err) {
+            console.error('Events load error:', err);
+        }
+    }
+
     async function init() {
         initChart();
 
@@ -558,13 +622,15 @@
         updateInfo(data);
         await loadCandles(data.symbol);
         updateChartLines(data);
+        await loadEvents();
 
-        // Auto-refresh: position data every 3s, candles every 30s
+        // Auto-refresh
         if (data.status === 'open') {
             setInterval(async () => {
                 const d = await fetchPosition();
                 if (d && !d.error) updateInfo(d);
-            }, 3000);
+            }, 2000);
+            setInterval(loadEvents, 5000);
         }
 
         setInterval(refreshCandles, 30000);

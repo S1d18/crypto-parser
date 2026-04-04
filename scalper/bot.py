@@ -182,6 +182,9 @@ class ScalperBot:
                     pos['breakeven_set'] = True
                     log.info('Breakeven set for #%d %s @ %.4f (SL→entry %.4f)',
                              trade_id, trade['symbol'], price, entry)
+                    self._storage.add_trade_event(
+                        trade_id, 'breakeven', price,
+                        f'SL перенесён на вход {entry:.4f}')
 
             # --- TP hit ---
             tp_hit = (direction == 'long' and price >= tp) or \
@@ -231,6 +234,9 @@ class ScalperBot:
                             log.info('Profit lock #%d %s: SL %.4f->%.4f (%.0f%% of $%.1f)',
                                      trade_id, trade['symbol'], old_sl, lock_price,
                                      lock_pct * 100, peak_pnl)
+                            self._storage.add_trade_event(
+                                trade_id, 'profit_lock', price,
+                                f'SL {old_sl:.4f}→{lock_price:.4f} (фикс {lock_pct*100:.0f}% от ${peak_pnl:.1f})')
                 else:
                     lock_price = entry - (lock_pnl + fees_approx) / qty
                     lock_price = max(lock_price, price + atr_buf)
@@ -241,6 +247,9 @@ class ScalperBot:
                             log.info('Profit lock #%d %s: SL %.4f->%.4f (%.0f%% of $%.1f)',
                                      trade_id, trade['symbol'], old_sl, lock_price,
                                      lock_pct * 100, peak_pnl)
+                            self._storage.add_trade_event(
+                                trade_id, 'profit_lock', price,
+                                f'SL {old_sl:.4f}→{lock_price:.4f} (фикс {lock_pct*100:.0f}% от ${peak_pnl:.1f})')
 
             # --- Частичное закрытие: 30% при $5+ прибыли ---
             if net_pnl >= 5.0 and not pos.get('partial_closed'):
@@ -252,6 +261,9 @@ class ScalperBot:
                     pos['partial_closed'] = True
                     log.info('Partial close #%d %s: 30%% locked $%.2f, 70%% rides on',
                              trade_id, trade['symbol'], net_pnl * 0.3)
+                    self._storage.add_trade_event(
+                        trade_id, 'partial_close', price,
+                        f'Закрыто 30% (${net_pnl*0.3:.2f}), остаток 70% едет')
                 except Exception:
                     log.warning('Partial close failed #%d', trade_id, exc_info=True)
 
@@ -404,6 +416,9 @@ class ScalperBot:
             signal.sl_price, signal.tp_price, sizing['qty'],
         )
         self._notify('trade_opened', trade)
+        self._storage.add_trade_event(
+            trade_id, 'opened', price,
+            f'{signal.direction.upper()} | SL={signal.sl_price:.4f} TP={signal.tp_price:.4f} | {", ".join(signal.reasons)}')
 
     async def _close_trade(self, trade_id: int, exit_price: float, reason: str):
         """Close trade: place close order, calc PnL, update balance, save to DB."""
@@ -481,6 +496,9 @@ class ScalperBot:
             'pnl_pct': pnl_pct,
             'reason': reason,
         })
+        self._storage.add_trade_event(
+            trade_id, 'closed', exit_price,
+            f'Причина: {reason} | PnL: ${net_pnl:.2f} ({pnl_pct:.1f}%)')
 
     # ------------------------------------------------------------------
     # Main loop
