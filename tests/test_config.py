@@ -25,7 +25,7 @@ class TestConfigDefaults:
         assert cfg.pause_after_losses_minutes == 60
 
         # Scanning
-        assert cfg.scan_interval == 30
+        assert cfg.scan_interval == 10
         assert cfg.scalp_timeframe == '5m'
         assert cfg.trend_timeframe == '15m'
         assert cfg.top_n_coins == 50

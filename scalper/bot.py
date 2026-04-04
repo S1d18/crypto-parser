@@ -94,35 +94,28 @@ class ScalperBot:
     # Main tick
     # ------------------------------------------------------------------
 
-    async def tick(self):
-        """One cycle: check positions -> scan -> enter.
+    async def tick_positions(self):
+        """Fast tick: check open positions (SL/TP/trailing/signals).
+        Called every 2 seconds — priority on protecting open trades."""
+        if self._open_positions:
+            await self._check_open_positions()
 
-        1. Check open positions (SL/TP/trailing)
-        2. If can't trade (risk limits) -> return
-        3. If already have open position -> return (one at a time)
-        4. Scan market for opportunities
-        5. Take best opportunity (highest strength)
-        """
-        # 1. Check open positions
-        await self._check_open_positions()
-
-        # 2. Risk check
+    async def tick_scan(self):
+        """Slow tick: scan market for new entries.
+        Called every scan_interval seconds."""
         if not self._risk.can_trade():
             log.info('Risk limits reached, skipping scan')
             return
 
-        # 3. Check how many slots available
         max_pos = self.cfg.max_open_positions
         open_count = len(self._open_positions)
         if open_count >= max_pos:
             return
 
-        # 4. Scan
         opportunities = await self._scanner.scan()
         if not opportunities:
             return
 
-        # 5. Open up to available slots, skip symbols we already hold
         held_symbols = {pos['trade']['symbol'] for pos in self._open_positions.values()}
         slots = max_pos - open_count
 
@@ -134,6 +127,11 @@ class ScalperBot:
             await self._open_trade(opp)
             held_symbols.add(opp['symbol'])
             slots -= 1
+
+    async def tick(self):
+        """Combined tick for backwards compatibility (used in tests)."""
+        await self.tick_positions()
+        await self.tick_scan()
 
     # ------------------------------------------------------------------
     # Position management
@@ -433,17 +431,33 @@ class ScalperBot:
                     await asyncio.sleep(wait)
 
         try:
-            while self._running:
-                try:
-                    await self.tick()
-                except Exception:
-                    log.error('Tick error', exc_info=True)
-
-                await asyncio.sleep(self.cfg.scan_interval)
+            # Two parallel loops: fast (positions) + slow (scanning)
+            await asyncio.gather(
+                self._loop_positions(),
+                self._loop_scan(),
+            )
         except asyncio.CancelledError:
             log.info('Bot loop cancelled')
         finally:
             await self.stop()
+
+    async def _loop_positions(self):
+        """Fast loop: check open positions every 2 seconds."""
+        while self._running:
+            try:
+                await self.tick_positions()
+            except Exception:
+                log.error('Position tick error', exc_info=True)
+            await asyncio.sleep(2)
+
+    async def _loop_scan(self):
+        """Slow loop: scan for new entries every scan_interval seconds."""
+        while self._running:
+            try:
+                await self.tick_scan()
+            except Exception:
+                log.error('Scan tick error', exc_info=True)
+            await asyncio.sleep(self.cfg.scan_interval)
 
     # ------------------------------------------------------------------
     # Status for dashboard
