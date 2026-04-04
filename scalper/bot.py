@@ -196,24 +196,31 @@ class ScalperBot:
                 pos[peak_key] = net_pnl
                 peak_pnl = net_pnl
 
-            # --- Умная фиксация прибыли ---
-            # 1. Если PnL >= $10 — забираем сразу (хорошая прибыль, не жадничаем)
-            if net_pnl >= 10.0:
-                log.info('Take profit #%d %s: pnl=$%.2f (>=$10)',
-                         trade_id, trade['symbol'], net_pnl)
-                await self._close_trade(trade_id, price, 'smart_tp')
-                closed_ids.append(trade_id)
-                continue
-
-            # 2. Если PnL был >= $3 и откатил на 20% от пика → забираем
-            if peak_pnl >= self.cfg.min_profit_usd and net_pnl > 0:
-                pullback = (peak_pnl - net_pnl) / peak_pnl if peak_pnl > 0 else 0
-                if pullback >= 0.2:
-                    log.info('Smart take profit #%d %s: peak=$%.2f, now=$%.2f, pullback=%.0f%%',
-                             trade_id, trade['symbol'], peak_pnl, net_pnl, pullback * 100)
-                    await self._close_trade(trade_id, price, 'smart_tp')
-                    closed_ids.append(trade_id)
-                    continue
+            # --- Умная фиксация: сдвигаем SL чтобы зафиксировать 50% прибыли ---
+            # Чем больше прибыль, тем выше стоп. Прибыль может расти бесконечно.
+            if peak_pnl >= self.cfg.min_profit_usd:
+                # Гарантируем минимум 50% от пиковой прибыли
+                lock_pnl = peak_pnl * 0.5
+                # Рассчитаем цену SL которая даст нам lock_pnl
+                if direction == 'long':
+                    # lock_pnl = (lock_price - entry) * qty - fees_approx
+                    fees_approx = entry * qty * self.cfg.taker_fee * 2
+                    lock_price = entry + (lock_pnl + fees_approx) / qty
+                    if lock_price > trailing.current_sl:
+                        old_sl = trailing.current_sl
+                        trailing.current_sl = lock_price
+                        if abs(lock_price - old_sl) > entry * 0.0001:
+                            log.info('Profit lock #%d %s: SL %.4f → %.4f (locking $%.1f of peak $%.1f)',
+                                     trade_id, trade['symbol'], old_sl, lock_price, lock_pnl, peak_pnl)
+                else:
+                    fees_approx = entry * qty * self.cfg.taker_fee * 2
+                    lock_price = entry - (lock_pnl + fees_approx) / qty
+                    if lock_price < trailing.current_sl:
+                        old_sl = trailing.current_sl
+                        trailing.current_sl = lock_price
+                        if abs(lock_price - old_sl) > entry * 0.0001:
+                            log.info('Profit lock #%d %s: SL %.4f → %.4f (locking $%.1f of peak $%.1f)',
+                                     trade_id, trade['symbol'], old_sl, lock_price, lock_pnl, peak_pnl)
 
             # --- SL hit (trailing) ---
             if trailing.is_hit(price):
