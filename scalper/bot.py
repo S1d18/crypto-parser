@@ -194,7 +194,7 @@ class ScalperBot:
                 closed_ids.append(trade_id)
                 continue
 
-            # --- PnL расчёт ---
+            # --- PnL расчёт (на о��нове реального qty после partial close) ---
             margin = trade.get('margin', entry * qty / self.cfg.leverage)
             if direction == 'long':
                 pnl_now = (price - entry) * qty
@@ -257,13 +257,15 @@ class ScalperBot:
                 try:
                     await self._exchange.close_position(
                         symbol=trade['symbol'], direction=direction, qty=partial_qty)
+                    partial_pnl = net_pnl * 0.3
                     trade['qty'] = qty * 0.7
                     pos['partial_closed'] = True
+                    pos['partial_pnl'] = partial_pnl  # запоминаем зафиксированную часть
                     log.info('Partial close #%d %s: 30%% locked $%.2f, 70%% rides on',
-                             trade_id, trade['symbol'], net_pnl * 0.3)
+                             trade_id, trade['symbol'], partial_pnl)
                     self._storage.add_trade_event(
                         trade_id, 'partial_close', price,
-                        f'Закрыто 30% (${net_pnl*0.3:.2f}), остаток 70% едет')
+                        f'Закрыто 30% (${partial_pnl:.2f}), остаток 70% едет')
                 except Exception:
                     log.warning('Partial close failed #%d', trade_id, exc_info=True)
 
@@ -318,15 +320,20 @@ class ScalperBot:
             except Exception:
                 pass
 
-            # Signal reversal
+            # Signal reversal — только при сильном сигнале И в прибыли
             try:
                 ohlcv = await self._exchange.fetch_ohlcv(symbol, self.cfg.scalp_timeframe, limit=100)
                 signal = self._signal_engine.evaluate(ohlcv)
-                if signal and signal.direction != direction:
-                    log.info('Signal reversal #%d %s: %s→%s',
-                             trade_id, symbol, direction, signal.direction)
-                    await self._close_trade(trade_id, price, 'signal_reversal')
-                    return trade_id
+                if signal and signal.direction != direction and signal.strength >= 3:
+                    # Закрываем по развороту только если:
+                    # 1. В прибыли — забираем что есть
+                    # 2. Или убыток уже > 50% от SL расстояния — всё равно уйдём по SL
+                    if net_pnl > 0:
+                        log.info('Signal reversal #%d %s: %s→%s (strength=%d, pnl=$%.2f)',
+                                 trade_id, symbol, direction, signal.direction,
+                                 signal.strength, net_pnl)
+                        await self._close_trade(trade_id, price, 'signal_reversal')
+                        return trade_id
             except Exception:
                 pass
 
@@ -544,7 +551,7 @@ class ScalperBot:
             await asyncio.sleep(1)
 
     async def _loop_heavy(self):
-        """Medium loop: orderbook + funding + OI + signal reversal every 5 seconds."""
+        """Medium loop: orderbook + funding + OI + signal reversal every 30 seconds."""
         while self._running:
             try:
                 positions = list(self._open_positions.items())
@@ -552,7 +559,7 @@ class ScalperBot:
                     await self._heavy_checks(positions)
             except Exception:
                 log.error('Heavy check error', exc_info=True)
-            await asyncio.sleep(5)
+            await asyncio.sleep(30)
 
     async def _loop_scan(self):
         """Slow loop: scan for new entries every scan_interval seconds."""
