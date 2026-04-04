@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from scalper.config import Config
 from scalper.exchange import Exchange
@@ -20,22 +21,29 @@ class Scanner:
         self._exchange = exchange or Exchange(config)
         self._engine = SignalEngine(config)
         self._trend_filter = TrendFilter(ema_fast=config.ema_fast, ema_slow=config.ema_slow)
+        # Cache top symbols for 5 minutes
+        self._top_symbols: list[str] = []
+        self._symbols_updated_at: float = 0
+        self._symbols_ttl: float = 300  # 5 min
+
+    async def _get_symbols(self) -> list[str]:
+        """Get top symbols with caching."""
+        now = time.time()
+        if not self._top_symbols or (now - self._symbols_updated_at) > self._symbols_ttl:
+            self._top_symbols = await self._exchange.get_top_symbols(self.cfg.top_n_coins)
+            self._symbols_updated_at = now
+            log.info('Updated top %d symbols', len(self._top_symbols))
+        return self._top_symbols
 
     async def scan(self) -> list[dict]:
         """Scan all coins, return sorted opportunities.
 
-        For each symbol in top_n_coins:
-        1. Fetch OHLCV for scalp_timeframe (e.g. 3m)
+        1. Fetch OHLCV for scalp_timeframe
         2. Evaluate with SignalEngine
-        3. If signal found: fetch senior TF OHLCV, check TrendFilter
-        4. If filter passes: add to opportunities
-
-        Sort by signal.strength descending.
-        Return list of {'symbol': str, 'signal': Signal, 'price': float}
-
-        Catch exceptions per-symbol and log warning, continue scanning.
+        3. If signal found: fetch senior TF, check TrendFilter
+        4. Sort by strength descending
         """
-        symbols = await self._exchange.get_top_symbols(self.cfg.top_n_coins)
+        symbols = await self._get_symbols()
         opportunities: list[dict] = []
 
         for symbol in symbols:
@@ -48,8 +56,9 @@ class Scanner:
                 if signal is None:
                     continue
 
+                # Only fetch senior TF if we have a signal (saves API calls)
                 senior_ohlcv = await self._exchange.fetch_ohlcv(
-                    symbol, self.cfg.trend_timeframe, limit=100,
+                    symbol, self.cfg.trend_timeframe, limit=50,
                 )
 
                 if not self._trend_filter.is_allowed(signal.direction, senior_ohlcv):
