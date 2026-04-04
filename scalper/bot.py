@@ -196,31 +196,57 @@ class ScalperBot:
                 pos[peak_key] = net_pnl
                 peak_pnl = net_pnl
 
-            # --- Умная фиксация: сдвигаем SL чтобы зафиксировать 50% прибыли ---
-            # Чем больше прибыль, тем выше стоп. Прибыль может расти бесконечно.
+            # --- 1. Ступенчатая фиксация с ATR буфером ---
+            # Чем больше прибыль — тем жёстче стоп, но с запасом на шум
             if peak_pnl >= self.cfg.min_profit_usd:
-                # Гарантируем минимум 50% от пиковой прибыли
-                lock_pnl = peak_pnl * 0.5
-                # Рассчитаем цену SL которая даст нам lock_pnl
+                if peak_pnl >= 20:
+                    lock_pct = 0.75
+                elif peak_pnl >= 10:
+                    lock_pct = 0.65
+                elif peak_pnl >= 5:
+                    lock_pct = 0.55
+                else:
+                    lock_pct = 0.40
+
+                lock_pnl = peak_pnl * lock_pct
+                fees_approx = entry * qty * self.cfg.taker_fee * 2
+
+                # ATR буфер — стоп не ближе чем 1.5% от текущей цены (шум не выбьет)
+                atr_buf = pos.get('atr_buffer', entry * 0.015)
+
                 if direction == 'long':
-                    # lock_pnl = (lock_price - entry) * qty - fees_approx
-                    fees_approx = entry * qty * self.cfg.taker_fee * 2
                     lock_price = entry + (lock_pnl + fees_approx) / qty
+                    lock_price = min(lock_price, price - atr_buf)
                     if lock_price > trailing.current_sl:
                         old_sl = trailing.current_sl
                         trailing.current_sl = lock_price
                         if abs(lock_price - old_sl) > entry * 0.0001:
-                            log.info('Profit lock #%d %s: SL %.4f → %.4f (locking $%.1f of peak $%.1f)',
-                                     trade_id, trade['symbol'], old_sl, lock_price, lock_pnl, peak_pnl)
+                            log.info('Profit lock #%d %s: SL %.4f->%.4f (%.0f%% of $%.1f)',
+                                     trade_id, trade['symbol'], old_sl, lock_price,
+                                     lock_pct * 100, peak_pnl)
                 else:
-                    fees_approx = entry * qty * self.cfg.taker_fee * 2
                     lock_price = entry - (lock_pnl + fees_approx) / qty
+                    lock_price = max(lock_price, price + atr_buf)
                     if lock_price < trailing.current_sl:
                         old_sl = trailing.current_sl
                         trailing.current_sl = lock_price
                         if abs(lock_price - old_sl) > entry * 0.0001:
-                            log.info('Profit lock #%d %s: SL %.4f → %.4f (locking $%.1f of peak $%.1f)',
-                                     trade_id, trade['symbol'], old_sl, lock_price, lock_pnl, peak_pnl)
+                            log.info('Profit lock #%d %s: SL %.4f->%.4f (%.0f%% of $%.1f)',
+                                     trade_id, trade['symbol'], old_sl, lock_price,
+                                     lock_pct * 100, peak_pnl)
+
+            # --- 2. Частичное закрытие: 30% при $5+ прибыли ---
+            if net_pnl >= 5.0 and not pos.get('partial_closed'):
+                partial_qty = qty * 0.3
+                try:
+                    await self._exchange.close_position(
+                        symbol=trade['symbol'], direction=direction, qty=partial_qty)
+                    trade['qty'] = qty * 0.7
+                    pos['partial_closed'] = True
+                    log.info('Partial close #%d %s: 30%% locked $%.2f, 70%% rides on',
+                             trade_id, trade['symbol'], net_pnl * 0.3)
+                except Exception:
+                    log.warning('Partial close failed #%d', trade_id, exc_info=True)
 
             # --- SL hit (trailing) ---
             if trailing.is_hit(price):
@@ -335,9 +361,13 @@ class ScalperBot:
             'margin': sizing['margin'],
         }
 
+        # ATR buffer = SL distance (already ATR-based from signals)
+        atr_buffer = abs(price - signal.sl_price)
+
         self._open_positions[trade_id] = {
             'trade': trade,
             'trailing': trailing,
+            'atr_buffer': atr_buffer,
         }
 
         log.info(
