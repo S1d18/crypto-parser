@@ -29,8 +29,8 @@ class Config:
     pause_after_losses_minutes: int = 60
 
     # Scanning
-    scan_interval: int = 30
-    scalp_timeframe: str = '5m'           # было 3m → 5m, меньше шума
+    scan_interval: int = 10              # было 30 → 10 сек, быстрее реакция
+    scalp_timeframe: str = '5m'
     trend_timeframe: str = '15m'
     top_n_coins: int = 50
 
@@ -72,7 +72,7 @@ class Config:
             leverage=int(os.getenv('LEVERAGE', '10')),
             max_daily_loss=float(os.getenv('MAX_DAILY_LOSS', '30.0')),
             max_consecutive_losses=int(os.getenv('MAX_CONSECUTIVE_LOSSES', '10')),
-            scan_interval=int(os.getenv('SCAN_INTERVAL', '30')),
+            scan_interval=int(os.getenv('SCAN_INTERVAL', '10')),
             scalp_timeframe=os.getenv('SCALP_TIMEFRAME', '5m'),
             top_n_coins=int(os.getenv('TOP_N_COINS', '50')),
             web_port=int(os.getenv('WEB_PORT', '5001')),
