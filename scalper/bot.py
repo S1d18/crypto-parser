@@ -138,11 +138,8 @@ class ScalperBot:
     # ------------------------------------------------------------------
 
     async def _check_open_positions(self):
-        """For each open position: fast price check + SL/TP/trailing.
-        Heavy checks (market data, signal reversal) run on slower timer."""
+        """For each open position: fast price check + SL/TP/trailing."""
         closed_ids = []
-        import time
-        now = time.time()
 
         # Fetch all prices in parallel (one request per position)
         price_tasks = {}
@@ -266,20 +263,9 @@ class ScalperBot:
                 closed_ids.append(trade_id)
                 continue
 
-        # Remove closed positions from fast checks
+        # Remove closed positions
         for tid in closed_ids:
             del self._open_positions[tid]
-
-        # --- Тяжёлые проверки: параллельно для всех позиций, раз в 15 сек ---
-        heavy_positions = []
-        for trade_id, pos in list(self._open_positions.items()):
-            last_heavy = pos.get('last_heavy_check', 0)
-            if now - last_heavy >= 15:
-                heavy_positions.append((trade_id, pos))
-                pos['last_heavy_check'] = now
-
-        if heavy_positions:
-            await self._heavy_checks(heavy_positions)
 
     async def _heavy_checks(self, positions: list):
         """Market data + signal reversal — all positions in parallel."""
@@ -519,10 +505,11 @@ class ScalperBot:
                     await asyncio.sleep(wait)
 
         try:
-            # Two parallel loops: fast (positions) + slow (scanning)
+            # Three parallel loops
             await asyncio.gather(
-                self._loop_positions(),
-                self._loop_scan(),
+                self._loop_positions(),    # 1с — цена, SL/TP, trailing
+                self._loop_heavy(),        # 5с — стакан, funding, OI, сигналы
+                self._loop_scan(),         # 10с — поиск новых входов
             )
         except asyncio.CancelledError:
             log.info('Bot loop cancelled')
@@ -530,13 +517,24 @@ class ScalperBot:
             await self.stop()
 
     async def _loop_positions(self):
-        """Fast loop: check open positions every 1 second."""
+        """Fast loop: price + SL/TP + trailing every 1 second."""
         while self._running:
             try:
                 await self.tick_positions()
             except Exception:
                 log.error('Position tick error', exc_info=True)
             await asyncio.sleep(1)
+
+    async def _loop_heavy(self):
+        """Medium loop: orderbook + funding + OI + signal reversal every 5 seconds."""
+        while self._running:
+            try:
+                positions = list(self._open_positions.items())
+                if positions:
+                    await self._heavy_checks(positions)
+            except Exception:
+                log.error('Heavy check error', exc_info=True)
+            await asyncio.sleep(5)
 
     async def _loop_scan(self):
         """Slow loop: scan for new entries every scan_interval seconds."""
