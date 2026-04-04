@@ -264,12 +264,32 @@ class ScalperBot:
             del self._open_positions[tid]
 
     async def _open_trade(self, opportunity: dict):
-        """Open new trade: calc position size, save to DB, create trailing stop."""
+        """Open new trade: place real order on exchange, save to DB."""
         signal = opportunity['signal']
         symbol = opportunity['symbol']
         price = opportunity['price']
 
         sizing = self._risk.calc_position_size(price)
+
+        # Place real order on exchange
+        try:
+            order = await self._exchange.open_position(
+                symbol=symbol,
+                direction=signal.direction,
+                qty=sizing['qty'],
+                leverage=self.cfg.leverage,
+            )
+            # Use actual fill price if available
+            fill_price = order.get('average') or order.get('price') or price
+            if fill_price:
+                price = float(fill_price)
+            # Use actual filled qty
+            filled_qty = order.get('filled') or sizing['qty']
+            if filled_qty:
+                sizing['qty'] = float(filled_qty)
+        except Exception as e:
+            log.error('Failed to open %s %s: %s', signal.direction, symbol, e)
+            return
 
         trade_id = self._storage.open_trade(
             symbol=symbol,
@@ -314,20 +334,28 @@ class ScalperBot:
         self._notify('trade_opened', trade)
 
     async def _close_trade(self, trade_id: int, exit_price: float, reason: str):
-        """Close trade: calc PnL (with fees), update balance, save to DB.
-
-        PnL calc:
-          Long:  (exit - entry) * qty
-          Short: (entry - exit) * qty
-          Fees:  entry_fee + exit_fee (qty * price * taker_fee each)
-          Net PnL = gross - fees
-        """
+        """Close trade: place close order, calc PnL, update balance, save to DB."""
         pos = self._open_positions[trade_id]
         trade = pos['trade']
 
         entry = trade['entry_price']
         qty = trade['qty']
         direction = trade['direction']
+
+        # Place real close order on exchange
+        try:
+            order = await self._exchange.close_position(
+                symbol=trade['symbol'],
+                direction=direction,
+                qty=qty,
+            )
+            # Use actual fill price
+            fill_price = order.get('average') or order.get('price')
+            if fill_price:
+                exit_price = float(fill_price)
+        except Exception as e:
+            log.error('Failed to close #%d %s: %s', trade_id, trade['symbol'], e)
+            return
 
         # Gross PnL
         if direction == 'long':
