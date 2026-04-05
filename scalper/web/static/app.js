@@ -191,9 +191,13 @@ function updatePositions(positions) {
         html += `
         <a href="/trade/${p.trade_id}" class="position-row position-row-link">
             <div class="position-field">
+                <span class="position-field-label">Дата входа</span>
+                <span class="position-field-value">${openedTime || '—'}</span>
+                ${openedDate ? '<small style="color:var(--text-dim)">' + openedDate + '</small>' : ''}
+            </div>
+            <div class="position-field">
                 <span class="position-field-label">Монета</span>
                 <span class="position-field-value ${dirClass}">${p.symbol.split('/')[0]} ${dirLabel}</span>
-                ${openedTime ? '<small style="color:var(--text-dim)">' + openedTime + '<br>' + openedDate + '</small>' : ''}
             </div>
             <div class="position-field">
                 <span class="position-field-label">PnL</span>
