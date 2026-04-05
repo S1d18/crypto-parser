@@ -12,6 +12,7 @@
     <!-- Header -->
     <header class="header">
         <div class="header-left">
+            <a href="http://{{ request.host.split(':')[0] }}:5005" style="color:var(--text-dim);text-decoration:none;font-size:0.8rem;margin-right:12px">&larr; Обзор</a>
             <h1 class="logo">&#x1F3AF; Снайпер</h1>
             <span class="subtitle">{{ strategy_name | default('default') }}</span>
         </div>
@@ -62,6 +63,14 @@
             <div class="card metric-card">
                 <div class="metric-label">Лучш. / Худш.</div>
                 <div class="metric-value" id="metric-best-worst">$0 / $0</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-label">Упущено всего</div>
+                <div class="metric-value" id="metric-missed">$0.00</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-label">Ср. время сделки</div>
+                <div class="metric-value" id="metric-avg-time">0m</div>
             </div>
         </section>
 
