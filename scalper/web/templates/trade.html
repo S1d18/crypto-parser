@@ -283,9 +283,9 @@
     let tvChart = null;
     let candleSeries = null;
     let volumeSeries = null;
-    let entryLine = null;
     let slLine = null;
     let tpLine = null;
+    let currentPriceLine = null;
     let tradeData = null;
 
     /* ---------- Helpers ---------- */
@@ -508,25 +508,35 @@
         ro.observe(container);
     }
 
-    function updateChartLines(data) {
+    function updateChartLines(data, candles) {
         if (!candleSeries || !data) return;
 
         // Remove old lines
-        if (entryLine) { candleSeries.removePriceLine(entryLine); entryLine = null; }
         if (slLine) { candleSeries.removePriceLine(slLine); slLine = null; }
         if (tpLine) { candleSeries.removePriceLine(tpLine); tpLine = null; }
+        if (currentPriceLine) { candleSeries.removePriceLine(currentPriceLine); currentPriceLine = null; }
 
-        if (data.entry_price) {
-            entryLine = candleSeries.createPriceLine({
-                price: data.entry_price,
+        // Entry marker (dot on the chart at entry time)
+        if (data.entry_price && data.opened_at && candles && candles.length) {
+            const entryTs = Math.floor(new Date(data.opened_at).getTime() / 1000);
+            // Find closest candle to entry time
+            let closestCandle = candles[0];
+            let minDiff = Infinity;
+            for (const c of candles) {
+                const diff = Math.abs(c.time - entryTs);
+                if (diff < minDiff) { minDiff = diff; closestCandle = c; }
+            }
+            const isLong = data.direction === 'long';
+            candleSeries.setMarkers([{
+                time: closestCandle.time,
+                position: isLong ? 'belowBar' : 'aboveBar',
                 color: '#448aff',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'Вход',
-            });
+                shape: isLong ? 'arrowUp' : 'arrowDown',
+                text: 'Вход $' + data.entry_price.toFixed(4),
+            }]);
         }
 
+        // SL line
         if (data.sl_price) {
             slLine = candleSeries.createPriceLine({
                 price: data.sl_price,
@@ -538,6 +548,7 @@
             });
         }
 
+        // TP line
         if (data.tp_price) {
             tpLine = candleSeries.createPriceLine({
                 price: data.tp_price,
@@ -548,7 +559,22 @@
                 title: 'TP',
             });
         }
+
+        // Current price line (for open trades or last price)
+        const curPrice = data.current_price || data.exit_price;
+        if (curPrice) {
+            currentPriceLine = candleSeries.createPriceLine({
+                price: curPrice,
+                color: '#ffab40',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                axisLabelVisible: true,
+                title: data.status === 'open' ? 'Сейчас' : 'Выход',
+            });
+        }
     }
+
+    let lastCandles = null;
 
     async function loadCandles(symbol) {
         if (!symbol) return;
@@ -560,6 +586,7 @@
                 console.error('OHLCV error:', candles.error);
                 return;
             }
+            lastCandles = candles;
             candleSeries.setData(candles);
 
             const volumes = candles.map(c => ({
@@ -667,14 +694,17 @@
 
         updateInfo(data);
         await loadCandles(data.symbol);
-        updateChartLines(data);
+        updateChartLines(data, lastCandles);
         await loadEvents();
 
         // Auto-refresh
         if (data.status === 'open') {
             setInterval(async () => {
                 const d = await fetchPosition();
-                if (d && !d.error) updateInfo(d);
+                if (d && !d.error) {
+                    updateInfo(d);
+                    updateChartLines(d, lastCandles);
+                }
             }, 2000);
             setInterval(loadEvents, 5000);
         }
