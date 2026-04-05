@@ -144,3 +144,75 @@ def calc_volume_ratio(volume: np.ndarray, period: int = 20) -> np.ndarray:
     valid = ~np.isnan(ema_vol) & (ema_vol > 0)
     out[valid] = volume[valid] / ema_vol[valid]
     return out
+
+
+def calc_bollinger(close: np.ndarray, period: int = 20,
+                   num_std: float = 2.0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Bollinger Bands: (middle, upper, lower).
+
+    middle = SMA(period)
+    upper  = middle + num_std * std
+    lower  = middle - num_std * std
+    """
+    n = len(close)
+    middle = np.full(n, np.nan, dtype=float)
+    upper = np.full(n, np.nan, dtype=float)
+    lower = np.full(n, np.nan, dtype=float)
+
+    for i in range(period - 1, n):
+        window = close[i - period + 1:i + 1]
+        m = np.mean(window)
+        s = np.std(window, ddof=0)
+        middle[i] = m
+        upper[i] = m + num_std * s
+        lower[i] = m - num_std * s
+
+    return middle, upper, lower
+
+
+def calc_bb_width(upper: np.ndarray, lower: np.ndarray,
+                  middle: np.ndarray) -> np.ndarray:
+    """Bollinger Band width = (upper - lower) / middle. Measures squeeze."""
+    out = np.full(len(upper), np.nan, dtype=float)
+    valid = ~np.isnan(middle) & (middle > 0)
+    out[valid] = (upper[valid] - lower[valid]) / middle[valid]
+    return out
+
+
+def calc_vwap(high: np.ndarray, low: np.ndarray, close: np.ndarray,
+              volume: np.ndarray) -> np.ndarray:
+    """Session VWAP (cumulative from start of data).
+
+    VWAP = cumsum(typical_price * volume) / cumsum(volume)
+    """
+    typical = (high + low + close) / 3.0
+    cum_tv = np.cumsum(typical * volume)
+    cum_vol = np.cumsum(volume)
+    out = np.full(len(close), np.nan, dtype=float)
+    valid = cum_vol > 0
+    out[valid] = cum_tv[valid] / cum_vol[valid]
+    return out
+
+
+def calc_obv(close: np.ndarray, volume: np.ndarray) -> np.ndarray:
+    """On-Balance Volume."""
+    n = len(close)
+    out = np.zeros(n, dtype=float)
+    for i in range(1, n):
+        if close[i] > close[i - 1]:
+            out[i] = out[i - 1] + volume[i]
+        elif close[i] < close[i - 1]:
+            out[i] = out[i - 1] - volume[i]
+        else:
+            out[i] = out[i - 1]
+    return out
+
+
+def calc_obv_slope(obv: np.ndarray, period: int = 5) -> np.ndarray:
+    """OBV slope over last N bars (positive = accumulation)."""
+    n = len(obv)
+    out = np.full(n, np.nan, dtype=float)
+    for i in range(period, n):
+        if not np.isnan(obv[i]) and not np.isnan(obv[i - period]):
+            out[i] = obv[i] - obv[i - period]
+    return out

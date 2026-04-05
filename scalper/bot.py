@@ -19,13 +19,15 @@ log = logging.getLogger(__name__)
 class ScalperBot:
     """Core trading bot that ties exchange, scanner, risk and storage together."""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, strategy_name: str = 'default',
+                 signal_engine=None, scanner=None):
         self.cfg = config
+        self.strategy_name = strategy_name
         self._exchange = Exchange(config)
-        self._scanner = Scanner(config, exchange=self._exchange)
+        self._scanner = scanner or Scanner(config, exchange=self._exchange)
         self._risk = RiskManager(config)
-        self._storage = Storage()
-        self._signal_engine = SignalEngine(config)
+        self._storage = Storage(db_path=f'data/scalper_{strategy_name}.db')
+        self._signal_engine = signal_engine or SignalEngine(config)
         self._market_data = MarketData(self._exchange)
         self._open_positions: dict[int, dict] = {}  # trade_id -> {trade, trailing}
         self._last_prices: dict[str, float] = {}    # symbol -> last known price
@@ -615,6 +617,7 @@ class ScalperBot:
 
         return {
             'running': self._running,
+            'strategy': self.strategy_name,
             'balance': self.cfg.balance,
             'unrealized_pnl': round(total_unrealized, 2),
             'total_balance': round(self.cfg.balance + total_unrealized, 2),
