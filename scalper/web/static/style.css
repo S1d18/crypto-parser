@@ -135,10 +135,11 @@ body {
 /* ===== Position Card ===== */
 .position-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 12px;
-    padding: 12px 0;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 6px;
+    padding: 8px 0;
     border-bottom: 1px solid var(--glass-border);
+    font-size: 0.82rem;
 }
 
 .position-row:last-child {
@@ -148,17 +149,18 @@ body {
 .position-field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
 }
 
 .position-field-label {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     color: var(--text-dim);
     text-transform: uppercase;
 }
 
 .position-field-value {
     font-weight: 600;
+    font-size: 0.82rem;
 }
 
 .direction-long {
