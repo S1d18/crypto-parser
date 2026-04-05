@@ -56,16 +56,16 @@ class TestTrailingStop(unittest.TestCase):
 
 class TestPositionSize(unittest.TestCase):
     def test_position_size(self):
-        cfg = Config(balance=200.0, leverage=20, max_risk_per_trade=0.5, max_open_positions=3)
+        cfg = Config(balance=200.0, leverage=20, max_risk_per_trade=0.5, max_open_positions=10)
         rm = RiskManager(cfg)
-        result = rm.calc_position_size(price=50000.0)
+        result = rm.calc_position_size(price=50000.0, confidence=100)
 
-        # margin = 200 * 0.5 / 3 = 33.33
-        self.assertAlmostEqual(result['margin'], 200 * 0.5 / 3, places=2)
-        # position_value = margin * 20
-        self.assertAlmostEqual(result['position_value'], 200 * 0.5 / 3 * 20, places=2)
-        # qty = position_value / 50000
-        self.assertAlmostEqual(result['qty'], 200 * 0.5 / 3 * 20 / 50000, places=6)
+        # margin = 200 * 0.15 * 1.0 (conf>=90) = 30.0
+        self.assertAlmostEqual(result['margin'], 30.0, places=2)
+        # position_value = 30 * 20 = 600
+        self.assertAlmostEqual(result['position_value'], 600.0, places=2)
+        # qty = 600 / 50000
+        self.assertAlmostEqual(result['qty'], 600.0 / 50000, places=6)
 
 
 class TestConsecutiveLosses(unittest.TestCase):

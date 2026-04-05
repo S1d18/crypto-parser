@@ -41,21 +41,24 @@ class RiskManager:
 
     def calc_position_size(self, price: float, confidence: int = 100) -> dict:
         """Returns {'qty': float, 'margin': float, 'position_value': float}
-        Margin is split across max_open_positions and scaled by confidence."""
-        max_pos = getattr(self.config, 'max_open_positions', 10)
-        margin = self.config.balance * self.config.max_risk_per_trade / max_pos
 
-        # Scale by confidence: higher confidence = bigger position
+        Base margin = 15% of balance per trade (before confidence scaling).
+        Confidence scales: 60=50%, 70=70%, 80=85%, 90+=100%.
+        Max total margin in open positions capped at 80% of balance.
+        """
+        base_margin = self.config.balance * 0.15  # 15% баланса на сделку
+
+        # Scale by confidence
         if confidence >= 90:
             scale = 1.0
         elif confidence >= 80:
-            scale = 0.75
+            scale = 0.85
         elif confidence >= 70:
-            scale = 0.50
+            scale = 0.70
         else:
-            scale = 0.30
+            scale = 0.50
 
-        margin = margin * scale
+        margin = base_margin * scale
         position_value = margin * self.config.leverage
         qty = position_value / price
         return {

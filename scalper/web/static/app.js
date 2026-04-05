@@ -191,6 +191,10 @@ function updatePositions(positions) {
                 <span class="position-field-label">Маржа</span>
                 <span class="position-field-value">$${margin.toFixed(2)}</span>
             </div>
+            <div class="position-field">
+                <span class="position-field-label">Позиция</span>
+                <span class="position-field-value">$${(margin * 20).toFixed(0)}</span>
+            </div>
         </a>`;
     }
     container.innerHTML = html;
@@ -199,7 +203,7 @@ function updatePositions(positions) {
 function updateTrades(trades) {
     const tbody = $('trades-tbody');
     if (!trades.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="no-data">Нет завершённых сделок</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="no-data">Нет завершённых сделок</td></tr>';
         return;
     }
 
@@ -209,10 +213,12 @@ function updateTrades(trades) {
         const dirLabel = t.direction === 'long' ? 'LONG' : 'SHORT';
         const pnl = t.pnl || 0;
         const pnlPct = t.pnl_pct || 0;
+        const margin = t.margin || 0;
         html += `<tr class="trade-row-link" onclick="window.location='/trade/${t.id}'">
             <td>${formatTime(t.closed_at)}</td>
             <td>${t.symbol}</td>
             <td class="${dirClass}">${dirLabel}</td>
+            <td>$${margin.toFixed(1)}</td>
             <td>$${t.entry_price.toFixed(4)}</td>
             <td>${t.exit_price ? '$' + t.exit_price.toFixed(4) : '—'}</td>
             <td class="${pnlClass(pnl)}">${formatPnl(pnl)} (${pnlPct.toFixed(1)}%)</td>
