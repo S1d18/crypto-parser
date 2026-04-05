@@ -606,7 +606,7 @@ class ScalperBot:
 
             trailing = pos['trailing']
             current_sl = trailing.current_sl
-            sl_moved = abs(current_sl - trade['sl_price']) > entry * 0.0001
+            sl_moved = bool(abs(current_sl - trade['sl_price']) > entry * 0.0001)
 
             positions_list.append({
                 'trade_id': tid,
