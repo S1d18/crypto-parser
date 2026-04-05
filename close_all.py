@@ -59,7 +59,7 @@ def main():
         symbol = p['symbol']
         qty = p['contracts']
         entry = p.get('entryPrice', 0)
-        pnl = p.get('unrealizedPnl', 0)
+        pnl = p.get('unrealizedPnl') or 0
         mark = p.get('markPrice', 0)
 
         print(f'  {symbol:25s} {side:5s}  qty={qty}  entry=${entry}  mark=${mark}  uPnL=${pnl:.2f}')
