@@ -111,6 +111,13 @@ class Storage:
         cur.execute("SELECT * FROM trades WHERE status = 'open'")
         return [dict(row) for row in cur.fetchall()]
 
+    def update_trade_peak(self, trade_id: int, peak_pnl: float, peak_price: float):
+        """Persist peak PnL so it survives restarts."""
+        self.conn.execute(
+            "UPDATE trades SET peak_pnl = ?, peak_price = ? WHERE id = ?",
+            (peak_pnl, peak_price, trade_id))
+        self.conn.commit()
+
     def get_daily_stats(self, day=None) -> dict:
         if day is None:
             day = date.today().isoformat()
