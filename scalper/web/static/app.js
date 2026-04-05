@@ -162,6 +162,14 @@ function updateStatus(data) {
     const bwEl = $('metric-best-worst');
     bwEl.innerHTML = '<span class="pnl-positive">' + formatPnl(best) + '</span> / <span class="pnl-negative">' + formatPnl(worst) + '</span>';
 
+    const missed = all.total_missed_pnl || 0;
+    const missedEl = $('metric-missed');
+    missedEl.textContent = '$' + missed.toFixed(2);
+    missedEl.className = 'metric-value ' + (missed > 0 ? 'pnl-negative' : '');
+
+    const avgTime = all.avg_time_min || 0;
+    $('metric-avg-time').textContent = avgTime.toFixed(0) + 'm';
+
     // Positions
     updatePositions(data.positions || []);
 }

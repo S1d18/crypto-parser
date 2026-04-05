@@ -210,6 +210,20 @@ class ScalperBot:
             if net_pnl > peak_pnl:
                 pos[peak_key] = net_pnl
                 peak_pnl = net_pnl
+                pos['peak_price'] = price
+
+            # --- Spike protection: PnL упал 40%+ от пика → закрыть ---
+            if peak_pnl >= 5.0 and net_pnl > 0:
+                drop_pct = (peak_pnl - net_pnl) / peak_pnl
+                if drop_pct >= 0.40:
+                    log.info('Spike protect #%d %s: peak=$%.2f now=$%.2f drop=%.0f%%',
+                             trade_id, trade['symbol'], peak_pnl, net_pnl, drop_pct * 100)
+                    self._storage.add_trade_event(
+                        trade_id, 'spike_protect', price,
+                        f'Пик ${peak_pnl:.2f} → сейчас ${net_pnl:.2f} (потеря {drop_pct*100:.0f}%)')
+                    await self._close_trade(trade_id, price, 'spike_protect')
+                    closed_ids.append(trade_id)
+                    continue
 
             # --- Ступенчатая фиксация с ATR буфером ---
             if peak_pnl >= self.cfg.min_profit_usd:
@@ -390,6 +404,7 @@ class ScalperBot:
             leverage=self.cfg.leverage,
             margin=sizing['margin'],
             reasons=', '.join(signal.reasons),
+            confidence=signal.confidence,
         )
 
         trailing = self._risk.create_trailing_stop(
@@ -483,6 +498,20 @@ class ScalperBot:
         else:
             self._risk.record_loss()
 
+        # Analytics
+        peak_pnl = pos.get(f'peak_pnl_{trade_id}', 0)
+        peak_price = pos.get('peak_price', exit_price)
+        opened_at = trade.get('opened_at', '')
+        time_held = 0
+        if opened_at:
+            try:
+                from datetime import datetime as dt
+                opened_dt = dt.fromisoformat(opened_at)
+                time_held = int((dt.now() - opened_dt).total_seconds())
+            except Exception:
+                pass
+        missed = round(peak_pnl - net_pnl, 2) if peak_pnl > net_pnl else 0
+
         # Save to DB
         self._storage.close_trade(
             trade_id=trade_id,
@@ -490,6 +519,9 @@ class ScalperBot:
             pnl=net_pnl,
             pnl_pct=pnl_pct,
             close_reason=reason,
+            peak_pnl=peak_pnl,
+            peak_price=peak_price,
+            time_held_sec=time_held,
         )
 
         # Save equity snapshot and persist balance
@@ -497,8 +529,9 @@ class ScalperBot:
         self._storage.save_state('balance', str(self.cfg.balance))
 
         log.info(
-            'Closed trade #%d %s | reason=%s | PnL=%.2f (%.1f%%)',
+            'Closed #%d %s | %s | PnL=$%.2f (%.1f%%) | peak=$%.2f missed=$%.2f | held=%dm',
             trade_id, trade['symbol'], reason, net_pnl, pnl_pct,
+            peak_pnl, missed, time_held // 60,
         )
         self._notify('trade_closed', {
             'trade_id': trade_id,
