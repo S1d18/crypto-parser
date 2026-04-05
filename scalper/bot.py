@@ -398,6 +398,7 @@ class ScalperBot:
             sl=signal.sl_price,
         )
 
+        from datetime import datetime
         trade = {
             'id': trade_id,
             'symbol': symbol,
@@ -408,6 +409,7 @@ class ScalperBot:
             'tp_price': signal.tp_price,
             'leverage': self.cfg.leverage,
             'margin': sizing['margin'],
+            'opened_at': datetime.now().isoformat(),
         }
 
         # ATR buffer = SL distance (already ATR-based from signals)
@@ -620,6 +622,7 @@ class ScalperBot:
                 'margin': round(margin, 2),
                 'pnl': round(pnl, 2),
                 'pnl_pct': round(pnl_pct, 2),
+                'opened_at': trade.get('opened_at', ''),
             })
 
         return {

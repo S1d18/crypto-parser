@@ -181,11 +181,19 @@ function updatePositions(positions) {
         const pnlPct = p.pnl_pct || 0;
         const curPrice = p.current_price || p.entry_price;
         const margin = p.margin || 0;
+        let openedTime = '';
+        let openedDate = '';
+        if (p.opened_at) {
+            const d = new Date(p.opened_at);
+            openedTime = d.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            openedDate = d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+        }
         html += `
         <a href="/trade/${p.trade_id}" class="position-row position-row-link">
             <div class="position-field">
                 <span class="position-field-label">Монета</span>
                 <span class="position-field-value ${dirClass}">${p.symbol.split('/')[0]} ${dirLabel}</span>
+                ${openedTime ? '<small style="color:var(--text-dim)">' + openedTime + '<br>' + openedDate + '</small>' : ''}
             </div>
             <div class="position-field">
                 <span class="position-field-label">PnL</span>
