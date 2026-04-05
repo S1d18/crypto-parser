@@ -110,12 +110,28 @@ class Storage:
         wins = sum(1 for r in rows if r["pnl"] > 0)
         losses = total - wins
         win_rate = (wins / total * 100) if total > 0 else 0.0
+        avg_pnl = (total_pnl / total) if total > 0 else 0.0
+
+        win_pnls = [r["pnl"] for r in rows if r["pnl"] > 0]
+        loss_pnls = [r["pnl"] for r in rows if r["pnl"] <= 0]
+        avg_win = (sum(win_pnls) / len(win_pnls)) if win_pnls else 0.0
+        avg_loss = (sum(loss_pnls) / len(loss_pnls)) if loss_pnls else 0.0
+        profit_factor = (sum(win_pnls) / abs(sum(loss_pnls))) if loss_pnls and sum(loss_pnls) != 0 else 0.0
+        best_trade = max((r["pnl"] for r in rows), default=0.0)
+        worst_trade = min((r["pnl"] for r in rows), default=0.0)
+
         return {
             "total_trades": total,
-            "total_pnl": total_pnl,
+            "total_pnl": round(total_pnl, 2),
             "wins": wins,
             "losses": losses,
-            "win_rate": win_rate,
+            "win_rate": round(win_rate, 1),
+            "avg_pnl": round(avg_pnl, 2),
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "profit_factor": round(profit_factor, 2),
+            "best_trade": round(best_trade, 2),
+            "worst_trade": round(worst_trade, 2),
         }
 
     def get_trade_history(self, limit: int = 50) -> list[dict]:
