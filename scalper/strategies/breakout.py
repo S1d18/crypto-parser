@@ -2,10 +2,11 @@
 
 Логика:
 - BB width ниже среднего = сжатие (рынок копит энергию)
-- Цена пробивает BB с ускорением объёма (> 1.5× среднего)
-- ADX растёт (переход от боковика к тренду) — бонус
-- SL: mid BB или 1.5×ATR
-- TP: ширина BB спроецирована или 2× SL
+- Цена пробивает BB с ускорением объёма (ОБЯЗАТЕЛЬНО > 1.5×)
+- ADX > 20 — минимальный импульс для подтверждения
+- Свеча пробоя закрывается за BB (не просто тень)
+- SL: 2×ATR (шире — дать пробою пространство)
+- TP: ширина BB спроецирована или 2.5× SL
 """
 
 from __future__ import annotations
@@ -30,11 +31,11 @@ class BreakoutEngine:
 
     squeeze_lookback: int = 50
     volume_surge: float = 1.5
-    adx_rising_bars: int = 1
+    adx_min: int = 20
 
-    atr_sl_mult: float = 1.5
-    min_sl_pct: float = 0.8
-    tp_ratio: float = 2.0
+    atr_sl_mult: float = 2.0       # wider SL for breakouts
+    min_sl_pct: float = 1.0
+    tp_ratio: float = 2.5          # bigger TP target
 
     def evaluate(self, ohlcv: dict[str, np.ndarray]) -> Signal | None:
         close = ohlcv['close']
@@ -61,7 +62,17 @@ class BreakoutEngine:
         if np.isnan(bb_w_val):
             return None
 
-        # Squeeze: BB width was below average recently
+        # --- ADX must show some momentum ---
+        adx_val = adx[last]
+        if np.isnan(adx_val) or adx_val < self.adx_min:
+            return None
+
+        # --- Volume REQUIRED (not optional) ---
+        vr_val = vol_r[last]
+        if np.isnan(vr_val) or vr_val < self.volume_surge:
+            return None
+
+        # --- Squeeze: BB width was below average recently ---
         lookback_start = max(0, last - self.squeeze_lookback)
         recent_widths = bb_w[lookback_start:last]
         valid_widths = recent_widths[~np.isnan(recent_widths)]
@@ -85,49 +96,63 @@ class BreakoutEngine:
         if any(np.isnan(v) for v in [upper_val, lower_val, mid_val]):
             return None
 
-        # Direction: breakout above upper or below lower
+        # --- Direction: close must be BEYOND BB (not just wick) ---
         reasons = []
         direction = None
-        confidence = 60
+        confidence = 65  # base higher since volume + ADX already confirmed
 
         if close[last] > upper_val and close[last - 1] <= upper_val * 1.002:
+            # Reject if price already too far from BB (late entry)
+            overshoot = (close[last] - upper_val) / atr_val
+            if overshoot > 1.5:
+                return None
             reasons.append('bb_breakout_up')
             direction = 'long'
         elif close[last] < lower_val and close[last - 1] >= lower_val * 0.998:
+            overshoot = (lower_val - close[last]) / atr_val
+            if overshoot > 1.5:
+                return None
             reasons.append('bb_breakout_down')
             direction = 'short'
         else:
             return None
 
         reasons.append('squeeze')
+        reasons.append('volume_confirmed')
 
-        # Bonus: ADX rising
-        adx_val = adx[last]
+        # Bonuses
         if not np.isnan(adx_val) and last >= 1:
             adx_prev = adx[last - 1]
             if not np.isnan(adx_prev) and adx_val > adx_prev:
                 reasons.append('adx_rising')
                 confidence += 10
-            if adx_val > 30:
-                confidence += 5
 
-        # Bonus: volume surge
-        vr_val = vol_r[last]
-        if not np.isnan(vr_val) and vr_val > self.volume_surge:
-            reasons.append('volume_surge')
-            confidence += 10
-            if vr_val > 2.0:
+        if adx_val > 30:
+            reasons.append('strong_momentum')
+            confidence += 5
+
+        if vr_val > 2.0:
+            reasons.append('strong_volume')
+            confidence += 5
+
+        # 2+ consecutive candles in breakout direction = momentum
+        if last >= 2:
+            if direction == 'long' and close[last] > close[last-1] > close[last-2]:
+                reasons.append('momentum_candles')
+                confidence += 5
+            elif direction == 'short' and close[last] < close[last-1] < close[last-2]:
+                reasons.append('momentum_candles')
                 confidence += 5
 
         confidence = min(confidence, 100)
         entry_price = float(close[last])
 
-        sl_atr = atr_val * self.atr_sl_mult
-        sl_bb = abs(entry_price - mid_val)
-        sl_distance = min(sl_atr, sl_bb) if sl_bb > 0 else sl_atr
+        # Wider SL for breakouts
+        sl_distance = atr_val * self.atr_sl_mult
         min_sl = entry_price * self.min_sl_pct / 100
         sl_distance = max(sl_distance, min_sl)
 
+        # TP: BB width projected or ratio * SL
         bb_range = upper_val - lower_val
         tp_distance = max(bb_range, sl_distance * self.tp_ratio)
 

@@ -223,10 +223,10 @@ class ScalperBot:
                 # Persist to DB so restarts don't lose peak
                 self._storage.update_trade_peak(trade_id, peak_pnl, price)
 
-            # --- Spike protection: PnL упал 40%+ от пика → закрыть ---
-            if peak_pnl >= 5.0 and net_pnl > 0:
+            # --- Spike protection: PnL упал 50%+ от пика (мин $8) → закрыть ---
+            if peak_pnl >= 8.0 and net_pnl > 0:
                 drop_pct = (peak_pnl - net_pnl) / peak_pnl
-                if drop_pct >= 0.40:
+                if drop_pct >= 0.50:
                     log.info('Spike protect #%d %s: peak=$%.2f now=$%.2f drop=%.0f%%',
                              trade_id, trade['symbol'], peak_pnl, net_pnl, drop_pct * 100)
                     self._storage.add_trade_event(
