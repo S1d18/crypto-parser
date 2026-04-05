@@ -508,7 +508,29 @@
         ro.observe(container);
     }
 
-    function updateChartLines(data, candles) {
+    const MARKER_STYLES = {
+        opened:         { color: '#448aff', shape: 'arrowUp', shapeShort: 'arrowDown', text: 'Вход' },
+        breakeven:      { color: '#2196f3', shape: 'circle',  text: 'БУ' },
+        profit_lock:    { color: '#ffd740', shape: 'circle',  text: 'Фикс' },
+        partial_close:  { color: '#e040fb', shape: 'circle',  text: '30%' },
+        spike_protect:  { color: '#ff6e40', shape: 'circle',  text: 'Спайк' },
+        closed:         { color: '#ff5252', shape: 'square',  text: 'Выход' },
+        signal_reversal:{ color: '#ff9100', shape: 'square',  text: 'Разворот' },
+        market_signal:  { color: '#ff9100', shape: 'square',  text: 'Сигнал' },
+    };
+
+    function findClosestCandle(candles, isoTimestamp) {
+        const ts = Math.floor(new Date(isoTimestamp).getTime() / 1000);
+        let best = candles[0];
+        let minDiff = Infinity;
+        for (const c of candles) {
+            const diff = Math.abs(c.time - ts);
+            if (diff < minDiff) { minDiff = diff; best = c; }
+        }
+        return best;
+    }
+
+    function updateChartLines(data, candles, events) {
         if (!candleSeries || !data) return;
 
         // Remove old lines
@@ -516,24 +538,41 @@
         if (tpLine) { candleSeries.removePriceLine(tpLine); tpLine = null; }
         if (currentPriceLine) { candleSeries.removePriceLine(currentPriceLine); currentPriceLine = null; }
 
-        // Entry marker (dot on the chart at entry time)
-        if (data.entry_price && data.opened_at && candles && candles.length) {
-            const entryTs = Math.floor(new Date(data.opened_at).getTime() / 1000);
-            // Find closest candle to entry time
-            let closestCandle = candles[0];
-            let minDiff = Infinity;
-            for (const c of candles) {
-                const diff = Math.abs(c.time - entryTs);
-                if (diff < minDiff) { minDiff = diff; closestCandle = c; }
+        // Build markers from all events
+        const evts = events || lastEvents || [];
+        const markers = [];
+        const isLong = data.direction === 'long';
+
+        if (candles && candles.length) {
+            for (const e of evts) {
+                if (!e.price || !e.timestamp) continue;
+                const style = MARKER_STYLES[e.event_type];
+                if (!style) continue;
+
+                const candle = findClosestCandle(candles, e.timestamp);
+                let shape = style.shape;
+                if (e.event_type === 'opened') {
+                    shape = isLong ? 'arrowUp' : 'arrowDown';
+                }
+                if (e.event_type === 'closed' || e.event_type === 'signal_reversal' || e.event_type === 'spike_protect' || e.event_type === 'market_signal') {
+                    shape = isLong ? 'arrowDown' : 'arrowUp';
+                }
+
+                const position = (shape === 'arrowUp' || e.event_type === 'breakeven' || e.event_type === 'profit_lock')
+                    ? 'belowBar' : 'aboveBar';
+
+                markers.push({
+                    time: candle.time,
+                    position: position,
+                    color: style.color,
+                    shape: shape,
+                    text: style.text + ' $' + e.price.toFixed(4),
+                });
             }
-            const isLong = data.direction === 'long';
-            candleSeries.setMarkers([{
-                time: closestCandle.time,
-                position: isLong ? 'belowBar' : 'aboveBar',
-                color: '#448aff',
-                shape: isLong ? 'arrowUp' : 'arrowDown',
-                text: 'Вход $' + data.entry_price.toFixed(4),
-            }]);
+
+            // Sort markers by time (required by lightweight-charts)
+            markers.sort((a, b) => a.time - b.time);
+            candleSeries.setMarkers(markers);
         }
 
         // SL line
@@ -560,7 +599,7 @@
             });
         }
 
-        // Current price line (for open trades or last price)
+        // Current price / exit price line
         const curPrice = data.current_price || data.exit_price;
         if (curPrice) {
             currentPriceLine = candleSeries.createPriceLine({
@@ -646,15 +685,18 @@
         spike_protect: 'Защита от отката',
     };
 
+    let lastEvents = [];
+
     async function loadEvents() {
         try {
             const res = await fetch(`/api/trade/${TRADE_ID}/events`);
             const events = await res.json();
+            lastEvents = events;
             const container = $('events-log');
 
             if (!events.length) {
                 container.innerHTML = '<p style="color:var(--text-dim);padding:12px;">Нет событий</p>';
-                return;
+                return events;
             }
 
             let html = '';
@@ -677,8 +719,10 @@
                 </div>`;
             }
             container.innerHTML = html;
+            return events;
         } catch (err) {
             console.error('Events load error:', err);
+            return [];
         }
     }
 
@@ -694,8 +738,8 @@
 
         updateInfo(data);
         await loadCandles(data.symbol);
-        updateChartLines(data, lastCandles);
-        await loadEvents();
+        const events = await loadEvents();
+        updateChartLines(data, lastCandles, events);
 
         // Auto-refresh
         if (data.status === 'open') {
