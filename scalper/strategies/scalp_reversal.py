@@ -1,0 +1,156 @@
+"""Scalp Reversal — быстрый отскок от экстремумов в боковике.
+
+Логика:
+- ADX < 20 (рынок в рейндже, тренда нет)
+- Цена касается или пробивает Bollinger Band
+- RSI в экстремальной зоне (< 25 лонг, > 75 шорт)
+- Свеча показывает отторжение (длинная тень > тело)
+- Быстрый TP: цель mid BB (1:1 R:R примерно)
+- Tight SL за пределами BB + буфер
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from scalper.indicators import (
+    calc_atr, calc_adx, calc_rsi, calc_bollinger, calc_volume_ratio,
+)
+from scalper.signals import Signal
+
+
+class ScalpReversalEngine:
+    """Mean reversion scalps in ranging markets."""
+
+    bb_period: int = 20
+    bb_std: float = 2.0
+    rsi_period: int = 14
+    atr_period: int = 14
+    adx_period: int = 14
+    volume_ma_period: int = 20
+
+    # Ranging market = low ADX
+    adx_max: int = 22
+
+    # RSI extremes
+    rsi_oversold: int = 25
+    rsi_overbought: int = 75
+
+    # SL/TP
+    sl_buffer_atr: float = 0.5  # SL = beyond BB + 0.5×ATR
+    min_sl_pct: float = 0.5
+    tp_target: str = 'mid_bb'   # target mid BB
+
+    def evaluate(self, ohlcv: dict[str, np.ndarray]) -> Signal | None:
+        close = ohlcv['close']
+        high = ohlcv['high']
+        low = ohlcv['low']
+        volume = ohlcv['volume']
+        open_ = ohlcv['open']
+
+        if len(close) < self.bb_period + 10:
+            return None
+
+        mid, upper, lower = calc_bollinger(close, self.bb_period, self.bb_std)
+        rsi = calc_rsi(close, self.rsi_period)
+        atr = calc_atr(high, low, close, self.atr_period)
+        adx = calc_adx(high, low, close, self.adx_period)
+        vol_r = calc_volume_ratio(volume, self.volume_ma_period)
+
+        last = len(close) - 1
+
+        adx_val = adx[last]
+        atr_val = atr[last]
+        rsi_val = rsi[last]
+
+        if any(np.isnan(v) for v in [adx_val, atr_val, rsi_val]):
+            return None
+
+        # Must be ranging market
+        if adx_val > self.adx_max:
+            return None
+
+        if atr_val <= 0:
+            return None
+
+        upper_val = upper[last]
+        lower_val = lower[last]
+        mid_val = mid[last]
+
+        if any(np.isnan(v) for v in [upper_val, lower_val, mid_val]):
+            return None
+
+        # Candle analysis
+        body = abs(close[last] - open_[last])
+        upper_wick = high[last] - max(close[last], open_[last])
+        lower_wick = min(close[last], open_[last]) - low[last]
+
+        reasons = []
+        direction = None
+
+        # --- LONG: price at/below lower BB + RSI oversold ---
+        if close[last] <= lower_val * 1.002 or low[last] <= lower_val:
+            if rsi_val < self.rsi_oversold:
+                reasons.append('bb_lower_touch')
+                reasons.append('rsi_oversold')
+
+                # Rejection candle: lower wick > body
+                if lower_wick > body * 1.2 and body > 0:
+                    reasons.append('rejection_candle')
+
+                # Volume not too crazy (avoid panic selling)
+                vr_val = vol_r[last]
+                if not np.isnan(vr_val) and vr_val < 3.0:
+                    reasons.append('normal_volume')
+
+                if len(reasons) >= 3:
+                    direction = 'long'
+
+        # --- SHORT: price at/above upper BB + RSI overbought ---
+        elif close[last] >= upper_val * 0.998 or high[last] >= upper_val:
+            if rsi_val > self.rsi_overbought:
+                reasons.append('bb_upper_touch')
+                reasons.append('rsi_overbought')
+
+                # Rejection candle: upper wick > body
+                if upper_wick > body * 1.2 and body > 0:
+                    reasons.append('rejection_candle')
+
+                vr_val = vol_r[last]
+                if not np.isnan(vr_val) and vr_val < 3.0:
+                    reasons.append('normal_volume')
+
+                if len(reasons) >= 3:
+                    direction = 'short'
+
+        if direction is None:
+            return None
+
+        entry_price = float(close[last])
+
+        # SL: beyond BB + ATR buffer
+        sl_buffer = atr_val * self.sl_buffer_atr
+        min_sl = entry_price * self.min_sl_pct / 100
+
+        if direction == 'long':
+            sl_price = lower_val - sl_buffer
+            sl_distance = entry_price - sl_price
+            sl_distance = max(sl_distance, min_sl)
+            sl_price = entry_price - sl_distance
+            # TP: mid BB
+            tp_price = mid_val
+        else:
+            sl_price = upper_val + sl_buffer
+            sl_distance = sl_price - entry_price
+            sl_distance = max(sl_distance, min_sl)
+            sl_price = entry_price + sl_distance
+            tp_price = mid_val
+
+        return Signal(
+            direction=direction,
+            strength=len(reasons),
+            entry_price=entry_price,
+            sl_price=sl_price,
+            tp_price=tp_price,
+            reasons=reasons,
+        )

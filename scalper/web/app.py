@@ -33,9 +33,11 @@ def create_app(bot=None, storage=None):
     CORS(app)
     socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
 
+    strategy_name = getattr(bot, 'strategy_name', 'default') if bot else 'default'
+
     @app.route('/')
     def index():
-        return render_template('index.html')
+        return render_template('index.html', strategy_name=strategy_name)
 
     @app.route('/api/status')
     def api_status():
