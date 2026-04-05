@@ -23,6 +23,7 @@ class Signal:
     entry_price: float
     sl_price: float         # adaptive SL based on ATR
     tp_price: float         # TP = SL distance * tp_ratio
+    confidence: int = 60    # 0-100, entry confidence score
     reasons: list[str] = field(default_factory=list)
 
 
@@ -117,6 +118,14 @@ class SignalEngine:
         else:
             return None
 
+        # --- confidence scoring ------------------------------------------
+        confidence = 60 + (len(reasons) - min_sig) * 10
+        if adx_val > 35:
+            confidence += 5
+        if not np.isnan(vr_val) and vr_val > 1.5:
+            confidence += 5
+        confidence = min(confidence, 100)
+
         # --- adaptive SL / TP --------------------------------------------
         entry_price = float(close[last])
         sl_distance = atr_val * cfg.atr_sl_multiplier
@@ -140,5 +149,6 @@ class SignalEngine:
             entry_price=entry_price,
             sl_price=sl_price,
             tp_price=tp_price,
+            confidence=confidence,
             reasons=reasons,
         )

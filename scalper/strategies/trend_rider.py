@@ -1,13 +1,12 @@
 """Trend Rider — вход по тренду на откатах.
 
 Логика:
-- 3 EMA alignment (9/21/55) определяет направление тренда
-- ADX > 25 подтверждает силу тренда
-- Вход на откате: RSI откатывает в зону 40-55 (лонг) или 45-60 (шорт)
-- Цена возвращается к EMA fast после отката
+- EMA fast > EMA slow определяет тренд (2 EMA — основа)
+- EMA mid alignment — бонус к confidence
+- ADX > 20 подтверждает силу тренда
+- RSI в зоне отката (35-60 лонг, 40-65 шорт) — не перекуплен/перепродан
 - Объём подтверждает возобновление движения
-- SL: 1.5×ATR
-- TP: 2.5× SL distance (едем с трендом)
+- SL: 1.5×ATR, TP: 2.5× SL
 """
 
 from __future__ import annotations
@@ -23,23 +22,21 @@ from scalper.signals import Signal
 class TrendRiderEngine:
     """Trend-following entries on pullbacks."""
 
-    # Config defaults
     ema_fast: int = 9
     ema_mid: int = 21
     ema_slow: int = 55
     rsi_period: int = 14
     atr_period: int = 14
     adx_period: int = 14
-    adx_min: int = 25
+    adx_min: int = 20
     volume_ma_period: int = 20
 
-    # Pullback RSI zones
-    rsi_pullback_long_low: int = 38
-    rsi_pullback_long_high: int = 55
-    rsi_pullback_short_low: int = 45
-    rsi_pullback_short_high: int = 62
+    # Wider RSI zones
+    rsi_pullback_long_low: int = 35
+    rsi_pullback_long_high: int = 60
+    rsi_pullback_short_low: int = 40
+    rsi_pullback_short_high: int = 65
 
-    # SL/TP
     atr_sl_mult: float = 1.5
     tp_ratio: float = 2.5
     min_sl_pct: float = 0.8
@@ -80,49 +77,59 @@ class TrendRiderEngine:
 
         reasons = []
         direction = None
+        confidence = 60  # base
 
-        # --- LONG: EMA alignment up ---
-        if ef > em > es:
-            # Pullback: RSI was low, now recovering
+        # --- LONG: EMA fast > slow (core) ---
+        if ef > es:
             if self.rsi_pullback_long_low <= rsi_val <= self.rsi_pullback_long_high:
-                reasons.append('ema_alignment_up')
+                reasons.append('ema_uptrend')
                 reasons.append('rsi_pullback')
+                direction = 'long'
 
-                # Price near or just crossed above EMA fast
-                if close[last] >= ef * 0.998 and close[last - 1] <= ef:
+                # Bonuses
+                if ef > em > es:
+                    reasons.append('full_alignment')
+                    confidence += 10
+
+                if close[last] >= ef * 0.997 and close[last - 1] <= ef * 1.001:
                     reasons.append('ema_bounce')
+                    confidence += 10
 
-                # Volume confirms
-                if not np.isnan(vr_val) and vr_val > 1.3:
+                if not np.isnan(vr_val) and vr_val > 1.1:
                     reasons.append('volume_confirm')
+                    confidence += 10
 
-                # ADX strong
                 if adx_val > 35:
                     reasons.append('strong_trend')
+                    confidence += 5
 
-                if len(reasons) >= 3:
-                    direction = 'long'
-
-        # --- SHORT: EMA alignment down ---
-        elif ef < em < es:
+        # --- SHORT: EMA fast < slow (core) ---
+        elif ef < es:
             if self.rsi_pullback_short_low <= rsi_val <= self.rsi_pullback_short_high:
-                reasons.append('ema_alignment_down')
+                reasons.append('ema_downtrend')
                 reasons.append('rsi_pullback')
+                direction = 'short'
 
-                if close[last] <= ef * 1.002 and close[last - 1] >= ef:
+                if ef < em < es:
+                    reasons.append('full_alignment')
+                    confidence += 10
+
+                if close[last] <= ef * 1.003 and close[last - 1] >= ef * 0.999:
                     reasons.append('ema_bounce')
+                    confidence += 10
 
-                if not np.isnan(vr_val) and vr_val > 1.3:
+                if not np.isnan(vr_val) and vr_val > 1.1:
                     reasons.append('volume_confirm')
+                    confidence += 10
 
                 if adx_val > 35:
                     reasons.append('strong_trend')
-
-                if len(reasons) >= 3:
-                    direction = 'short'
+                    confidence += 5
 
         if direction is None:
             return None
+
+        confidence = min(confidence, 100)
 
         entry_price = float(close[last])
         sl_distance = atr_val * self.atr_sl_mult
@@ -142,5 +149,6 @@ class TrendRiderEngine:
             entry_price=entry_price,
             sl_price=sl_price,
             tp_price=tp_price,
+            confidence=confidence,
             reasons=reasons,
         )

@@ -21,7 +21,7 @@ class Config:
     balance: float = 200.0
     leverage: int = 20
     max_risk_per_trade: float = 0.5
-    max_open_positions: int = 3
+    max_open_positions: int = 10
 
     # Risk management
     max_daily_loss: float = 30.0
@@ -76,5 +76,5 @@ class Config:
             scalp_timeframe=os.getenv('SCALP_TIMEFRAME', '5m'),
             top_n_coins=int(os.getenv('TOP_N_COINS', '50')),
             web_port=int(os.getenv('WEB_PORT', '5001')),
-            max_open_positions=int(os.getenv('MAX_OPEN_POSITIONS', '3')),
+            max_open_positions=int(os.getenv('MAX_OPEN_POSITIONS', '10')),
         )

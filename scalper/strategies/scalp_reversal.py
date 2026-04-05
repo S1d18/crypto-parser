@@ -1,12 +1,12 @@
 """Scalp Reversal — быстрый отскок от экстремумов в боковике.
 
 Логика:
-- ADX < 20 (рынок в рейндже, тренда нет)
-- Цена касается или пробивает Bollinger Band
-- RSI в экстремальной зоне (< 25 лонг, > 75 шорт)
-- Свеча показывает отторжение (длинная тень > тело)
-- Быстрый TP: цель mid BB (1:1 R:R примерно)
-- Tight SL за пределами BB + буфер
+- ADX < 25 (рынок в рейндже)
+- Цена в зоне BB lower/upper band (в пределах 0.5%)
+- RSI < 30 (лонг) или > 70 (шорт)
+- Свеча отторжения — бонус к confidence
+- Быстрый TP: цель mid BB
+- Tight SL за пределами BB
 """
 
 from __future__ import annotations
@@ -29,17 +29,12 @@ class ScalpReversalEngine:
     adx_period: int = 14
     volume_ma_period: int = 20
 
-    # Ranging market = low ADX
-    adx_max: int = 22
+    adx_max: int = 25
+    rsi_oversold: int = 30
+    rsi_overbought: int = 70
 
-    # RSI extremes
-    rsi_oversold: int = 25
-    rsi_overbought: int = 75
-
-    # SL/TP
-    sl_buffer_atr: float = 0.5  # SL = beyond BB + 0.5×ATR
+    sl_buffer_atr: float = 0.5
     min_sl_pct: float = 0.5
-    tp_target: str = 'mid_bb'   # target mid BB
 
     def evaluate(self, ohlcv: dict[str, np.ndarray]) -> Signal | None:
         close = ohlcv['close']
@@ -66,7 +61,6 @@ class ScalpReversalEngine:
         if any(np.isnan(v) for v in [adx_val, atr_val, rsi_val]):
             return None
 
-        # Must be ranging market
         if adx_val > self.adx_max:
             return None
 
@@ -80,55 +74,68 @@ class ScalpReversalEngine:
         if any(np.isnan(v) for v in [upper_val, lower_val, mid_val]):
             return None
 
-        # Candle analysis
         body = abs(close[last] - open_[last])
         upper_wick = high[last] - max(close[last], open_[last])
         lower_wick = min(close[last], open_[last]) - low[last]
 
         reasons = []
         direction = None
+        confidence = 60
 
-        # --- LONG: price at/below lower BB + RSI oversold ---
-        if close[last] <= lower_val * 1.002 or low[last] <= lower_val:
+        # --- LONG: price near/below lower BB + RSI oversold ---
+        if close[last] <= lower_val * 1.005 or low[last] <= lower_val:
             if rsi_val < self.rsi_oversold:
                 reasons.append('bb_lower_touch')
                 reasons.append('rsi_oversold')
+                direction = 'long'
 
-                # Rejection candle: lower wick > body
-                if lower_wick > body * 1.2 and body > 0:
+                # Bonus: rejection candle
+                if body > 0 and lower_wick > body * 1.0:
                     reasons.append('rejection_candle')
+                    confidence += 10
 
-                # Volume not too crazy (avoid panic selling)
+                # Bonus: normal volume
                 vr_val = vol_r[last]
                 if not np.isnan(vr_val) and vr_val < 3.0:
                     reasons.append('normal_volume')
+                    confidence += 5
 
-                if len(reasons) >= 3:
-                    direction = 'long'
+                # Bonus: very extreme RSI
+                if rsi_val < 20:
+                    confidence += 10
 
-        # --- SHORT: price at/above upper BB + RSI overbought ---
-        elif close[last] >= upper_val * 0.998 or high[last] >= upper_val:
+                # Bonus: very low ADX = strong range
+                if adx_val < 15:
+                    confidence += 5
+
+        # --- SHORT: price near/above upper BB + RSI overbought ---
+        elif close[last] >= upper_val * 0.995 or high[last] >= upper_val:
             if rsi_val > self.rsi_overbought:
                 reasons.append('bb_upper_touch')
                 reasons.append('rsi_overbought')
+                direction = 'short'
 
-                # Rejection candle: upper wick > body
-                if upper_wick > body * 1.2 and body > 0:
+                if body > 0 and upper_wick > body * 1.0:
                     reasons.append('rejection_candle')
+                    confidence += 10
 
                 vr_val = vol_r[last]
                 if not np.isnan(vr_val) and vr_val < 3.0:
                     reasons.append('normal_volume')
+                    confidence += 5
 
-                if len(reasons) >= 3:
-                    direction = 'short'
+                if rsi_val > 80:
+                    confidence += 10
+
+                if adx_val < 15:
+                    confidence += 5
 
         if direction is None:
             return None
 
+        confidence = min(confidence, 100)
         entry_price = float(close[last])
 
-        # SL: beyond BB + ATR buffer
         sl_buffer = atr_val * self.sl_buffer_atr
         min_sl = entry_price * self.min_sl_pct / 100
 
@@ -137,7 +144,6 @@ class ScalpReversalEngine:
             sl_distance = entry_price - sl_price
             sl_distance = max(sl_distance, min_sl)
             sl_price = entry_price - sl_distance
-            # TP: mid BB
             tp_price = mid_val
         else:
             sl_price = upper_val + sl_buffer
@@ -152,5 +158,6 @@ class ScalpReversalEngine:
             entry_price=entry_price,
             sl_price=sl_price,
             tp_price=tp_price,
+            confidence=confidence,
             reasons=reasons,
         )

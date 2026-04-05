@@ -134,6 +134,7 @@ class TestBotSkipsWhenPaused:
     def test_bot_skips_when_has_open_position(self, config):
         from scalper.bot import ScalperBot
 
+        config.max_open_positions = 3  # limit to 3 for this test
         bot = ScalperBot(config)
         bot._exchange = _mock_exchange()
 

@@ -59,11 +59,11 @@ STRATEGIES = {
         'label': 'Trend Rider',
         'port': 5001,
         'engine_cls': TrendRiderEngine,
-        'use_trend_filter': True,  # trend filter reinforces direction
+        'use_trend_filter': True,
         'config_overrides': {
             'scan_interval': 15,
             'scalp_timeframe': '5m',
-            'max_open_positions': 2,
+            'max_open_positions': 5,
         },
     },
     'breakout': {
@@ -71,11 +71,11 @@ STRATEGIES = {
         'label': 'Breakout',
         'port': 5002,
         'engine_cls': BreakoutEngine,
-        'use_trend_filter': False,  # breakout can go either way
+        'use_trend_filter': False,
         'config_overrides': {
             'scan_interval': 10,
             'scalp_timeframe': '5m',
-            'max_open_positions': 2,
+            'max_open_positions': 5,
         },
     },
     'reversal': {
@@ -83,11 +83,11 @@ STRATEGIES = {
         'label': 'Scalp Reversal',
         'port': 5003,
         'engine_cls': ScalpReversalEngine,
-        'use_trend_filter': False,  # reversal = counter-trend by design
+        'use_trend_filter': False,
         'config_overrides': {
             'scan_interval': 10,
             'scalp_timeframe': '5m',
-            'max_open_positions': 3,
+            'max_open_positions': 5,
         },
     },
     'vwap': {
@@ -99,7 +99,7 @@ STRATEGIES = {
         'config_overrides': {
             'scan_interval': 10,
             'scalp_timeframe': '5m',
-            'max_open_positions': 2,
+            'max_open_positions': 5,
         },
     },
 }
