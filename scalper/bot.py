@@ -602,13 +602,19 @@ class ScalperBot:
             pnl_pct = (pnl / margin * 100) if margin > 0 else 0.0
             total_unrealized += pnl
 
+            trailing = pos['trailing']
+            current_sl = trailing.current_sl
+            sl_moved = abs(current_sl - trade['sl_price']) > entry * 0.0001
+
             positions_list.append({
                 'trade_id': tid,
                 'symbol': symbol,
                 'direction': direction,
                 'entry_price': entry,
                 'current_price': float(current_price),
-                'sl_price': trade['sl_price'],
+                'sl_price': round(current_sl, 6),       # current trailing SL
+                'sl_original': trade['sl_price'],         # original SL
+                'sl_moved': sl_moved,
                 'tp_price': trade['tp_price'],
                 'qty': qty,
                 'margin': round(margin, 2),

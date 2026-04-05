@@ -142,6 +142,26 @@ function updateStatus(data) {
 
     $('metric-total-trades').textContent = all.total_trades || 0;
 
+    const avgPnl = all.avg_pnl || 0;
+    const avgPnlEl = $('metric-avg-pnl');
+    avgPnlEl.textContent = formatPnl(avgPnl);
+    avgPnlEl.className = 'metric-value ' + pnlClass(avgPnl);
+
+    const avgWin = all.avg_win || 0;
+    const avgLoss = all.avg_loss || 0;
+    const wlEl = $('metric-avg-wl');
+    wlEl.innerHTML = '<span class="pnl-positive">' + formatPnl(avgWin) + '</span> / <span class="pnl-negative">' + formatPnl(avgLoss) + '</span>';
+
+    const pf = all.profit_factor || 0;
+    const pfEl = $('metric-pf');
+    pfEl.textContent = pf.toFixed(2);
+    pfEl.className = 'metric-value ' + (pf >= 1.0 ? 'pnl-positive' : 'pnl-negative');
+
+    const best = all.best_trade || 0;
+    const worst = all.worst_trade || 0;
+    const bwEl = $('metric-best-worst');
+    bwEl.innerHTML = '<span class="pnl-positive">' + formatPnl(best) + '</span> / <span class="pnl-negative">' + formatPnl(worst) + '</span>';
+
     // Positions
     updatePositions(data.positions || []);
 }
@@ -180,8 +200,9 @@ function updatePositions(positions) {
                 <span class="position-field-value">$${p.entry_price.toFixed(4)}</span>
             </div>
             <div class="position-field">
-                <span class="position-field-label">SL</span>
-                <span class="position-field-value pnl-negative">$${p.sl_price.toFixed(4)}</span>
+                <span class="position-field-label">SL ${p.sl_moved ? '(сдвинут)' : ''}</span>
+                <span class="position-field-value ${p.sl_moved ? 'pnl-positive' : 'pnl-negative'}">$${p.sl_price.toFixed(4)}</span>
+                ${p.sl_moved ? '<small style="color:var(--text-dim)">было $' + (p.sl_original||0).toFixed(4) + '</small>' : ''}
             </div>
             <div class="position-field">
                 <span class="position-field-label">TP</span>
