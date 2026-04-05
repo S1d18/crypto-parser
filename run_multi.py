@@ -25,6 +25,8 @@ from scalper.config import Config
 from scalper.bot import ScalperBot
 from scalper.storage import Storage
 from scalper.scanner_multi import MultiScanner
+from scalper.scanner import Scanner
+from scalper.signals import SignalEngine
 from scalper.strategies.trend_rider import TrendRiderEngine
 from scalper.strategies.breakout import BreakoutEngine
 from scalper.strategies.scalp_reversal import ScalpReversalEngine
@@ -188,7 +190,9 @@ def launch_overview(selected_keys: list[str], port: int = 5000):
     from flask import Flask, render_template
     from flask_cors import CORS
 
-    strategies_info = []
+    strategies_info = [
+        {'name': 'default', 'label': 'Sniper Original', 'port': 5000},
+    ]
     for key in selected_keys:
         strat = STRATEGIES[key]
         strategies_info.append({
@@ -217,6 +221,37 @@ def launch_overview(selected_keys: list[str], port: int = 5000):
     return web_thread
 
 
+def launch_original(base_config: Config, port: int = 5000) -> tuple:
+    """Launch the original Sniper bot on given port."""
+    cfg = deepcopy(base_config)
+    cfg.web_port = port
+
+    bot = ScalperBot(
+        config=cfg,
+        strategy_name='default',
+    )
+
+    # Use the original DB so it picks up existing positions
+    storage = Storage(db_path='data/scalper.db')
+    bot._storage = storage
+
+    sio = SocketIO()
+    app = create_app(bot=bot, storage=storage)
+    sio.init_app(app, cors_allowed_origins="*", async_mode='threading')
+
+    bot_thread = Thread(target=run_bot_thread, args=(bot,), daemon=True,
+                        name='bot-original')
+    bot_thread.start()
+
+    web_thread = Thread(target=run_web_thread,
+                        args=(app, sio, port, 'Sniper Original'),
+                        daemon=True, name='web-original')
+    web_thread.start()
+
+    log.info('Launched Sniper Original on port %d', port)
+    return bot_thread, web_thread
+
+
 def main():
     base_config = Config.from_env()
     log.info('Base config: balance=%.2f, leverage=%d', base_config.balance, base_config.leverage)
@@ -236,7 +271,11 @@ def main():
     print("=" * 60)
     print("  MULTI-STRATEGY LAUNCHER")
     print("=" * 60)
-    print(f"  {'Overview':20s} -> http://localhost:5000")
+
+    # Launch original Sniper on 5000
+    bt, wt = launch_original(base_config, port=5000)
+    threads.extend([bt, wt])
+    print(f"  {'Sniper (original)':20s} -> http://localhost:5000")
 
     for key in selected:
         strat = STRATEGIES[key]
@@ -244,10 +283,11 @@ def main():
         threads.extend([bt, wt])
         print(f"  {strat['label']:20s} -> http://localhost:{strat['port']}")
 
-    # Launch overview dashboard
-    ov_thread = launch_overview(selected, port=5000)
+    # Launch overview dashboard on 5005
+    ov_thread = launch_overview(selected, port=5005)
     threads.append(ov_thread)
 
+    print(f"  {'Overview':20s} -> http://localhost:5005")
     print("=" * 60)
     print()
 
