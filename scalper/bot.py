@@ -65,7 +65,7 @@ class ScalperBot:
             self.cfg.balance = float(saved_balance)
             log.info('Restored balance from DB: $%.2f', self.cfg.balance)
 
-        # Recover open positions
+        # Recover open positions (with peak_pnl from DB)
         open_trades = self._storage.get_open_trades()
         for trade in open_trades:
             trailing = self._risk.create_trailing_stop(
@@ -73,10 +73,19 @@ class ScalperBot:
                 entry=trade['entry_price'],
                 sl=trade['sl_price'],
             )
-            self._open_positions[trade['id']] = {
+            pos = {
                 'trade': trade,
                 'trailing': trailing,
             }
+            # Restore peak_pnl from DB
+            saved_peak = trade.get('peak_pnl') or 0
+            pos[f'peak_pnl_{trade["id"]}'] = saved_peak
+            if trade.get('peak_price'):
+                pos['peak_price'] = trade['peak_price']
+            if saved_peak > 0:
+                log.info('Restored peak PnL $%.2f for #%d %s',
+                         saved_peak, trade['id'], trade['symbol'])
+            self._open_positions[trade['id']] = pos
 
         log.info(
             'Bot started. Balance=%.2f, recovered %d open positions',
@@ -211,6 +220,8 @@ class ScalperBot:
                 pos[peak_key] = net_pnl
                 peak_pnl = net_pnl
                 pos['peak_price'] = price
+                # Persist to DB so restarts don't lose peak
+                self._storage.update_trade_peak(trade_id, peak_pnl, price)
 
             # --- Spike protection: PnL упал 40%+ от пика → закрыть ---
             if peak_pnl >= 5.0 and net_pnl > 0:
