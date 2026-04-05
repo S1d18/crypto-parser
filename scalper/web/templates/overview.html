@@ -6,6 +6,7 @@
     <title>Снайпер — Обзор стратегий</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
     <style>
         .strategy-grid {
             display: grid;
@@ -209,9 +210,9 @@
             </div>
         </section>
 
-        <!-- Recent trades across all strategies -->
+        <!-- Best trades across all strategies -->
         <section class="card">
-            <div class="card-title">Последние сделки (все стратегии)</div>
+            <div class="card-title">Лучшие сделки (все стратегии)</div>
             <div class="table-wrap recent-trades">
                 <table class="trades-table">
                     <thead>
@@ -219,9 +220,9 @@
                             <th>Стратегия</th>
                             <th>Пара</th>
                             <th>Напр.</th>
-                            <th>Вход</th>
-                            <th>Выход</th>
+                            <th>Маржа</th>
                             <th>PnL</th>
+                            <th>ROI%</th>
                             <th>Причина</th>
                             <th>Время</th>
                         </tr>
@@ -466,7 +467,8 @@ function renderEquityChart() {
                 },
                 scales: {
                     x: {
-                        type: 'timeseries',
+                        type: 'time',
+                        time: { tooltipFormat: 'dd.MM HH:mm', displayFormats: { hour: 'dd.MM HH:mm', minute: 'HH:mm' } },
                         ticks: { color: '#8888aa', maxTicksLimit: 10 },
                         grid: { color: 'rgba(255,255,255,0.05)' },
                     },
@@ -488,24 +490,27 @@ function renderRecentTrades() {
             allTrades.push({ ...t, strategy: LABELS[name] || name, stratColor: COLORS[name] || '#fff' });
         }
     }
-    allTrades.sort((a, b) => (b.closed_at || '').localeCompare(a.closed_at || ''));
-    allTrades = allTrades.slice(0, 30);
+    // Sort by PnL descending — best trades first
+    allTrades.sort((a, b) => (b.pnl || 0) - (a.pnl || 0));
+    allTrades = allTrades.slice(0, 20);
 
     const body = document.getElementById('recent-trades-body');
     body.innerHTML = '';
     for (const t of allTrades) {
         const tr = document.createElement('tr');
         const pnl = t.pnl || 0;
+        const margin = t.margin || 0;
+        const roi = margin > 0 ? (pnl / margin * 100) : 0;
         const dirClass = t.direction === 'long' ? 'direction-long' : 'direction-short';
-        const sym = (t.symbol || '').split(':')[0];
-        const time = t.closed_at ? new Date(t.closed_at).toLocaleString('ru') : '-';
+        const sym = (t.symbol || '').split(':')[0].split('/')[0];
+        const time = t.closed_at ? new Date(t.closed_at).toLocaleString('ru', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
         tr.innerHTML = `
             <td style="color:${t.stratColor};font-weight:600">${t.strategy}</td>
             <td>${sym}</td>
             <td class="${dirClass}">${(t.direction||'').toUpperCase()}</td>
-            <td>${(t.entry_price||0).toFixed(4)}</td>
-            <td>${(t.exit_price||0).toFixed(4)}</td>
+            <td>$${margin.toFixed(1)}</td>
             <td class="${pnlClass(pnl)}">${fmt(pnl)}</td>
+            <td class="${pnlClass(roi)}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%</td>
             <td>${t.close_reason || '-'}</td>
             <td>${time}</td>`;
         body.appendChild(tr);
