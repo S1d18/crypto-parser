@@ -43,12 +43,13 @@ def test_scanner_ranks_by_strength(config):
     exchange.fetch_ohlcv = AsyncMock(return_value=_make_ohlcv())
 
     sig_btc = Signal(direction='long', strength=2, entry_price=100.0,
-                     sl_price=98.0, tp_price=104.0, reasons=['ema_cross', 'momentum'])
+                     sl_price=98.0, tp_price=104.0, confidence=60,
+                     reasons=['ema_cross', 'momentum'])
     sig_eth = Signal(direction='short', strength=4, entry_price=50.0,
-                     sl_price=52.0, tp_price=46.0,
+                     sl_price=52.0, tp_price=46.0, confidence=90,
                      reasons=['ema_cross', 'rsi_overbought', 'volume_spike', 'momentum'])
     sig_sol = Signal(direction='long', strength=3, entry_price=10.0,
-                     sl_price=9.5, tp_price=11.5,
+                     sl_price=9.5, tp_price=11.5, confidence=75,
                      reasons=['ema_cross', 'rsi_oversold', 'momentum'])
 
     signal_map = {
@@ -87,13 +88,13 @@ def test_scanner_ranks_by_strength(config):
     results = asyncio.get_event_loop().run_until_complete(scanner.scan())
 
     assert len(results) == 3
-    # Should be sorted by strength descending: ETH(4), SOL(3), BTC(2)
+    # Should be sorted by confidence descending: ETH(90), SOL(75), BTC(60)
     assert results[0]['symbol'] == 'ETH/USDT:USDT'
-    assert results[0]['signal'].strength == 4
+    assert results[0]['signal'].confidence == 90
     assert results[1]['symbol'] == 'SOL/USDT:USDT'
-    assert results[1]['signal'].strength == 3
+    assert results[1]['signal'].confidence == 75
     assert results[2]['symbol'] == 'BTC/USDT:USDT'
-    assert results[2]['signal'].strength == 2
+    assert results[2]['signal'].confidence == 60
 
 
 def test_scanner_skips_no_signal(config):

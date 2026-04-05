@@ -1,11 +1,11 @@
 """Breakout — пробой после сжатия (Bollinger Squeeze).
 
 Логика:
-- Bollinger Band width ниже своего среднего = сжатие (рынок копит энергию)
-- Цена пробивает верхнюю/нижнюю BB с ускорением объёма (> 1.8× среднего)
-- ADX растёт (переход от боковика к тренду)
-- SL: mid BB (или 1×ATR)
-- TP: ширина BB спроецирована от точки пробоя
+- BB width ниже среднего = сжатие (рынок копит энергию)
+- Цена пробивает BB с ускорением объёма (> 1.5× среднего)
+- ADX растёт (переход от боковика к тренду) — бонус
+- SL: mid BB или 1.5×ATR
+- TP: ширина BB спроецирована или 2× SL
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from scalper.indicators import (
-    calc_atr, calc_adx, calc_ema, calc_bollinger, calc_bb_width,
+    calc_atr, calc_adx, calc_bollinger, calc_bb_width,
     calc_volume_ratio,
 )
 from scalper.signals import Signal
@@ -28,17 +28,13 @@ class BreakoutEngine:
     adx_period: int = 14
     volume_ma_period: int = 20
 
-    # Squeeze: BB width below its own SMA
     squeeze_lookback: int = 50
+    volume_surge: float = 1.5
+    adx_rising_bars: int = 1
 
-    # Entry thresholds
-    volume_surge: float = 1.8  # volume ratio for breakout confirmation
-    adx_rising_bars: int = 3   # ADX must be rising for N bars
-
-    # SL/TP
     atr_sl_mult: float = 1.5
     min_sl_pct: float = 0.8
-    tp_ratio: float = 2.0  # TP = BB width or 2×SL, whichever larger
+    tp_ratio: float = 2.0
 
     def evaluate(self, ohlcv: dict[str, np.ndarray]) -> Signal | None:
         close = ohlcv['close']
@@ -65,7 +61,7 @@ class BreakoutEngine:
         if np.isnan(bb_w_val):
             return None
 
-        # --- Check squeeze: current BB width below average of recent ---
+        # Squeeze: BB width was below average recently
         lookback_start = max(0, last - self.squeeze_lookback)
         recent_widths = bb_w[lookback_start:last]
         valid_widths = recent_widths[~np.isnan(recent_widths)]
@@ -73,46 +69,31 @@ class BreakoutEngine:
             return None
 
         avg_width = np.mean(valid_widths)
-        # Width was squeezed recently (in last 5 bars)
         was_squeezed = False
-        for i in range(max(0, last - 5), last):
-            if not np.isnan(bb_w[i]) and bb_w[i] < avg_width * 0.8:
+        for i in range(max(0, last - 8), last):
+            if not np.isnan(bb_w[i]) and bb_w[i] < avg_width * 0.85:
                 was_squeezed = True
                 break
 
         if not was_squeezed:
             return None
 
-        # --- ADX rising (trend building) ---
-        adx_rising = True
-        for i in range(1, min(self.adx_rising_bars + 1, last)):
-            a1 = adx[last - i + 1]
-            a0 = adx[last - i]
-            if np.isnan(a1) or np.isnan(a0) or a1 <= a0:
-                adx_rising = False
-                break
-
-        # --- Volume surge ---
-        vr_val = vol_r[last]
-        has_volume = not np.isnan(vr_val) and vr_val > self.volume_surge
-
-        # --- Direction: breakout above upper or below lower ---
         upper_val = upper[last]
         lower_val = lower[last]
         mid_val = mid[last]
 
-        if np.isnan(upper_val) or np.isnan(lower_val):
+        if any(np.isnan(v) for v in [upper_val, lower_val, mid_val]):
             return None
 
+        # Direction: breakout above upper or below lower
         reasons = []
         direction = None
+        confidence = 60
 
-        # Breakout long: close > upper BB
-        if close[last] > upper_val and close[last - 1] <= upper_val:
+        if close[last] > upper_val and close[last - 1] <= upper_val * 1.002:
             reasons.append('bb_breakout_up')
             direction = 'long'
-        # Breakout short: close < lower BB
-        elif close[last] < lower_val and close[last - 1] >= lower_val:
+        elif close[last] < lower_val and close[last - 1] >= lower_val * 0.998:
             reasons.append('bb_breakout_down')
             direction = 'short'
         else:
@@ -120,29 +101,35 @@ class BreakoutEngine:
 
         reasons.append('squeeze')
 
-        if adx_rising:
-            reasons.append('adx_rising')
-        if has_volume:
+        # Bonus: ADX rising
+        adx_val = adx[last]
+        if not np.isnan(adx_val) and last >= 1:
+            adx_prev = adx[last - 1]
+            if not np.isnan(adx_prev) and adx_val > adx_prev:
+                reasons.append('adx_rising')
+                confidence += 10
+            if adx_val > 30:
+                confidence += 5
+
+        # Bonus: volume surge
+        vr_val = vol_r[last]
+        if not np.isnan(vr_val) and vr_val > self.volume_surge:
             reasons.append('volume_surge')
+            confidence += 10
+            if vr_val > 2.0:
+                confidence += 5
 
-        # Need at least 3 reasons
-        if len(reasons) < 3:
-            return None
-
+        confidence = min(confidence, 100)
         entry_price = float(close[last])
 
-        # SL: mid BB or ATR-based, whichever is tighter
         sl_atr = atr_val * self.atr_sl_mult
         sl_bb = abs(entry_price - mid_val)
         sl_distance = min(sl_atr, sl_bb) if sl_bb > 0 else sl_atr
         min_sl = entry_price * self.min_sl_pct / 100
         sl_distance = max(sl_distance, min_sl)
 
-        # TP: BB width projected or ratio×SL
         bb_range = upper_val - lower_val
-        tp_from_bb = bb_range
-        tp_from_ratio = sl_distance * self.tp_ratio
-        tp_distance = max(tp_from_bb, tp_from_ratio)
+        tp_distance = max(bb_range, sl_distance * self.tp_ratio)
 
         if direction == 'long':
             sl_price = entry_price - sl_distance
@@ -157,5 +144,6 @@ class BreakoutEngine:
             entry_price=entry_price,
             sl_price=sl_price,
             tp_price=tp_price,
+            confidence=confidence,
             reasons=reasons,
         )

@@ -358,7 +358,7 @@ class ScalperBot:
         symbol = opportunity['symbol']
         price = opportunity['price']
 
-        sizing = self._risk.calc_position_size(price)
+        sizing = self._risk.calc_position_size(price, confidence=signal.confidence)
 
         # Place real order on exchange
         try:
@@ -420,14 +420,15 @@ class ScalperBot:
         }
 
         log.info(
-            'Opened %s %s @ %.4f | SL=%.4f TP=%.4f | qty=%.4f',
+            'Opened %s %s @ %.4f | SL=%.4f TP=%.4f | qty=%.4f | confidence=%d | %s',
             signal.direction.upper(), symbol, price,
             signal.sl_price, signal.tp_price, sizing['qty'],
+            signal.confidence, ', '.join(signal.reasons),
         )
-        self._notify('trade_opened', trade)
+        self._notify('trade_opened', {**trade, 'confidence': signal.confidence})
         self._storage.add_trade_event(
             trade_id, 'opened', price,
-            f'{signal.direction.upper()} | SL={signal.sl_price:.4f} TP={signal.tp_price:.4f} | {", ".join(signal.reasons)}')
+            f'{signal.direction.upper()} | confidence={signal.confidence} | SL={signal.sl_price:.4f} TP={signal.tp_price:.4f} | {", ".join(signal.reasons)}')
 
     async def _close_trade(self, trade_id: int, exit_price: float, reason: str):
         """Close trade: place close order, calc PnL, update balance, save to DB."""

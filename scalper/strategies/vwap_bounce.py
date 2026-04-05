@@ -2,12 +2,9 @@
 
 Логика:
 - VWAP как "справедливая цена" — магнит для цены
-- Цена подходит к VWAP (в пределах 0.3% от VWAP)
-- OBV slope подтверждает направление (покупатели/продавцы доминируют)
-- Volume на касании выше среднего
-- EMA trend для фильтра направления
-- SL: 1×ATR за VWAP
-- TP: 2× SL distance
+- Цена в пределах 0.5% от VWAP
+- Нужно 2 подтверждения из: OBV slope, EMA trend, volume, RSI, vwap_bounce
+- SL: 1.2×ATR за VWAP, TP: 2× SL
 """
 
 from __future__ import annotations
@@ -31,13 +28,9 @@ class VwapBounceEngine:
     volume_ma_period: int = 20
     obv_slope_period: int = 5
 
-    # VWAP proximity: price within 0.3% of VWAP
-    vwap_proximity_pct: float = 0.3
+    vwap_proximity_pct: float = 0.5
+    volume_min: float = 1.1
 
-    # Volume confirmation
-    volume_min: float = 1.2
-
-    # SL/TP
     atr_sl_mult: float = 1.2
     tp_ratio: float = 2.0
     min_sl_pct: float = 0.6
@@ -75,68 +68,74 @@ class VwapBounceEngine:
         if atr_val <= 0 or vwap_val <= 0:
             return None
 
-        # --- Price near VWAP ---
         price = close[last]
         distance_to_vwap = abs(price - vwap_val) / vwap_val * 100
 
         if distance_to_vwap > self.vwap_proximity_pct:
             return None
 
-        # --- Check if price is bouncing (was further, now returning) ---
-        prev_distance = abs(close[last - 1] - vwap_val) / vwap_val * 100
-        approaching = prev_distance > distance_to_vwap
-
         reasons = []
         direction = None
+        confidence = 60
 
-        # --- LONG: price at/below VWAP, bouncing up ---
-        if price <= vwap_val * 1.001:  # at or below VWAP
-            # OBV rising = buyers accumulating
+        # --- LONG: price at/below VWAP ---
+        if price <= vwap_val * 1.002:
+            confirmations = 0
+
             if not np.isnan(obv_slope) and obv_slope > 0:
                 reasons.append('obv_accumulation')
+                confirmations += 1
+                confidence += 10
 
-            # EMA trend supports long
             if ef > es:
                 reasons.append('ema_uptrend')
+                confirmations += 1
+                confidence += 10
 
-            # Volume present
             if not np.isnan(vr_val) and vr_val > self.volume_min:
                 reasons.append('volume_confirm')
+                confirmations += 1
+                confidence += 5
 
-            # RSI not overbought
             if 30 < rsi_val < 60:
                 reasons.append('rsi_neutral')
+                confirmations += 1
+                confidence += 5
 
-            # Approaching VWAP from below
-            if price >= vwap_val * 0.998 and approaching:
-                reasons.append('vwap_bounce')
-
-            if len(reasons) >= 3:
+            if confirmations >= 2:
                 direction = 'long'
 
-        # --- SHORT: price at/above VWAP, bouncing down ---
-        elif price >= vwap_val * 0.999:
+        # --- SHORT: price at/above VWAP ---
+        elif price >= vwap_val * 0.998:
+            confirmations = 0
+
             if not np.isnan(obv_slope) and obv_slope < 0:
                 reasons.append('obv_distribution')
+                confirmations += 1
+                confidence += 10
 
             if ef < es:
                 reasons.append('ema_downtrend')
+                confirmations += 1
+                confidence += 10
 
             if not np.isnan(vr_val) and vr_val > self.volume_min:
                 reasons.append('volume_confirm')
+                confirmations += 1
+                confidence += 5
 
             if 40 < rsi_val < 70:
                 reasons.append('rsi_neutral')
+                confirmations += 1
+                confidence += 5
 
-            if price <= vwap_val * 1.002 and approaching:
-                reasons.append('vwap_bounce')
-
-            if len(reasons) >= 3:
+            if confirmations >= 2:
                 direction = 'short'
 
         if direction is None:
             return None
 
+        confidence = min(confidence, 100)
         entry_price = float(price)
         sl_distance = atr_val * self.atr_sl_mult
         min_sl = entry_price * self.min_sl_pct / 100
@@ -155,5 +154,6 @@ class VwapBounceEngine:
             entry_price=entry_price,
             sl_price=sl_price,
             tp_price=tp_price,
+            confidence=confidence,
             reasons=reasons,
         )

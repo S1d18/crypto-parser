@@ -74,5 +74,5 @@ class Scanner:
                 log.warning('Error scanning %s', symbol, exc_info=True)
                 continue
 
-        opportunities.sort(key=lambda x: x['signal'].strength, reverse=True)
+        opportunities.sort(key=lambda x: x['signal'].confidence, reverse=True)
         return opportunities
