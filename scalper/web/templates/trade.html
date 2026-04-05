@@ -225,6 +225,23 @@
                 <div class="info-card-label">TP цена</div>
                 <div class="info-card-value pnl-positive" id="info-tp">—</div>
             </div>
+            <div class="info-card" id="card-confidence" style="display:none">
+                <div class="info-card-label">Confidence</div>
+                <div class="info-card-value" id="info-confidence">—</div>
+            </div>
+            <div class="info-card" id="card-peak" style="display:none">
+                <div class="info-card-label">Пик прибыли</div>
+                <div class="info-card-value pnl-positive" id="info-peak-pnl">—</div>
+                <div class="info-card-sub" id="info-peak-price"></div>
+            </div>
+            <div class="info-card" id="card-missed" style="display:none">
+                <div class="info-card-label">Упущено</div>
+                <div class="info-card-value pnl-negative" id="info-missed">—</div>
+            </div>
+            <div class="info-card" id="card-time" style="display:none">
+                <div class="info-card-label">Время в сделке</div>
+                <div class="info-card-value" id="info-time-held">—</div>
+            </div>
         </section>
 
         <!-- Reasons card (separate, full-width) -->
@@ -384,12 +401,36 @@
             $('info-reasons').textContent = reasons;
         }
 
+        // Analytics cards
+        if (data.confidence) {
+            $('card-confidence').style.display = '';
+            $('info-confidence').textContent = data.confidence;
+            $('info-confidence').style.color = data.confidence >= 80 ? 'var(--green)' : data.confidence >= 70 ? 'var(--blue)' : 'var(--text-dim)';
+        }
+        if (data.peak_pnl && data.peak_pnl > 0) {
+            $('card-peak').style.display = '';
+            $('info-peak-pnl').textContent = '+' + fmtUsd(data.peak_pnl);
+            $('info-peak-price').textContent = data.peak_price ? '@ $' + fmt(data.peak_price) : '';
+        }
+        if (data.missed_pnl && data.missed_pnl > 0) {
+            $('card-missed').style.display = '';
+            $('info-missed').textContent = '-' + fmtUsd(data.missed_pnl);
+        }
+        if (data.time_held_sec && data.time_held_sec > 0) {
+            $('card-time').style.display = '';
+            const mins = Math.floor(data.time_held_sec / 60);
+            const secs = data.time_held_sec % 60;
+            $('info-time-held').textContent = mins + 'м ' + secs + 'с';
+        }
+
         // Details table
         const rows = [
             ['Открытие', formatTime(data.opened_at)],
             ['Направление', dir.toUpperCase()],
+            ['Confidence', data.confidence || '—'],
             ['Объём (qty)', data.qty],
             ['Плечо', (data.leverage || '—') + 'x'],
+            ['Маржа', data.margin ? fmtUsd(data.margin) : '—'],
             ['Цена входа', '$' + fmt(data.entry_price)],
             ['SL', '$' + fmt(data.sl_price)],
             ['TP', '$' + fmt(data.tp_price)],
@@ -400,6 +441,9 @@
             rows.push(['Цена выхода', '$' + fmt(data.exit_price)]);
             rows.push(['Причина закрытия', data.close_reason || '—']);
             rows.push(['PnL', (data.pnl >= 0 ? '+' : '') + fmtUsd(data.pnl) + ' (' + (data.pnl_pct || 0).toFixed(2) + '%)']);
+            if (data.peak_pnl) rows.push(['Пик прибыли', '+' + fmtUsd(data.peak_pnl) + (data.peak_price ? ' @ $' + fmt(data.peak_price) : '')]);
+            if (data.missed_pnl > 0) rows.push(['Упущенная прибыль', fmtUsd(data.missed_pnl)]);
+            if (data.time_held_sec) rows.push(['Время в сделке', Math.floor(data.time_held_sec/60) + 'м ' + (data.time_held_sec%60) + 'с']);
         }
         let tbody = '';
         for (const [label, val] of rows) {
@@ -561,6 +605,7 @@
         partial_close: '💰',
         signal_reversal: '↩️',
         market_signal: '📊',
+        spike_protect: '⚡',
     };
 
     const EVENT_NAMES = {
@@ -571,6 +616,7 @@
         partial_close: 'Частичное закрытие',
         signal_reversal: 'Разворот сигнала',
         market_signal: 'Рыночный сигнал',
+        spike_protect: 'Защита от отката',
     };
 
     async function loadEvents() {
