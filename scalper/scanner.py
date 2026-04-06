@@ -56,6 +56,9 @@ class Scanner:
                 if signal is None:
                     continue
 
+                if signal.confidence < 75:
+                    continue
+
                 # Only fetch senior TF if we have a signal (saves API calls)
                 senior_ohlcv = await self._exchange.fetch_ohlcv(
                     symbol, self.cfg.trend_timeframe, limit=50,

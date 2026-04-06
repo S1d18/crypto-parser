@@ -1,4 +1,4 @@
-"""Multi-strategy launcher — runs 4 strategies on ports 5001-5004.
+"""Multi-strategy launcher — runs strategy dashboards on dedicated ports.
 
 Each strategy:
 - Has its own signal engine
@@ -7,11 +7,14 @@ Each strategy:
 - Shares the same Bybit API credentials
 
 Usage:
-    python run_multi.py              # all 4 strategies
+    python run_multi.py              # launch all configured strategies
     python run_multi.py trend        # only Trend Rider on 5001
     python run_multi.py breakout     # only Breakout on 5002
     python run_multi.py reversal     # only Scalp Reversal on 5003
     python run_multi.py vwap         # only VWAP Bounce on 5004
+    python run_multi.py ema_retest   # EMA Retest on 5006
+    python run_multi.py donchian     # Donchian Breakout on 5007
+    python run_multi.py vwap_revert  # VWAP Reversion on 5008
 """
 
 import asyncio
@@ -31,6 +34,9 @@ from scalper.strategies.trend_rider import TrendRiderEngine
 from scalper.strategies.breakout import BreakoutEngine
 from scalper.strategies.scalp_reversal import ScalpReversalEngine
 from scalper.strategies.vwap_bounce import VwapBounceEngine
+from scalper.strategies.ema_retest import EmaRetestEngine
+from scalper.strategies.donchian_breakout import DonchianBreakoutEngine
+from scalper.strategies.vwap_reversion import VwapReversionEngine
 from scalper.web.app import create_app
 
 from flask_socketio import SocketIO
@@ -102,6 +108,42 @@ STRATEGIES = {
             'max_open_positions': 5,
         },
     },
+    'ema_retest': {
+        'name': 'ema_retest',
+        'label': 'EMA Retest',
+        'port': 5006,
+        'engine_cls': EmaRetestEngine,
+        'use_trend_filter': True,
+        'config_overrides': {
+            'scan_interval': 10,
+            'scalp_timeframe': '5m',
+            'max_open_positions': 5,
+        },
+    },
+    'donchian': {
+        'name': 'donchian_breakout',
+        'label': 'Donchian Breakout',
+        'port': 5007,
+        'engine_cls': DonchianBreakoutEngine,
+        'use_trend_filter': False,
+        'config_overrides': {
+            'scan_interval': 10,
+            'scalp_timeframe': '5m',
+            'max_open_positions': 5,
+        },
+    },
+    'vwap_revert': {
+        'name': 'vwap_reversion',
+        'label': 'VWAP Reversion',
+        'port': 5008,
+        'engine_cls': VwapReversionEngine,
+        'use_trend_filter': False,
+        'config_overrides': {
+            'scan_interval': 10,
+            'scalp_timeframe': '5m',
+            'max_open_positions': 5,
+        },
+    },
 }
 
 
@@ -137,10 +179,25 @@ def run_web_thread(app, socketio_inst, port: int, label: str):
 
 
 def launch_strategy(strat_key: str, base_config: Config) -> tuple:
-    """Create and launch a single strategy (bot + web)."""
+    """Create and launch a single strategy (bot + web).
+
+    Each strategy can use its own Bybit sub-account API keys via env vars:
+        BYBIT_API_KEY_<STRATEGY_NAME>=...
+        BYBIT_API_SECRET_<STRATEGY_NAME>=...
+    Falls back to the global BYBIT_API_KEY/SECRET if not set.
+    """
     strat = STRATEGIES[strat_key]
     cfg = make_config(base_config, strat['config_overrides'])
     cfg.web_port = strat['port']
+
+    # Per-strategy API keys (sub-accounts)
+    env_suffix = strat['name'].upper()
+    sub_key = os.getenv(f'BYBIT_API_KEY_{env_suffix}', '')
+    sub_secret = os.getenv(f'BYBIT_API_SECRET_{env_suffix}', '')
+    if sub_key and sub_secret:
+        cfg.bybit_api_key = sub_key
+        cfg.bybit_api_secret = sub_secret
+        log.info('%s: using sub-account API keys', strat['label'])
 
     engine = strat['engine_cls']()
 
@@ -225,6 +282,14 @@ def launch_original(base_config: Config, port: int = 5000) -> tuple:
     """Launch the original Sniper bot on given port."""
     cfg = deepcopy(base_config)
     cfg.web_port = port
+
+    # Per-strategy API keys (sub-accounts)
+    sub_key = os.getenv('BYBIT_API_KEY_DEFAULT', '')
+    sub_secret = os.getenv('BYBIT_API_SECRET_DEFAULT', '')
+    if sub_key and sub_secret:
+        cfg.bybit_api_key = sub_key
+        cfg.bybit_api_secret = sub_secret
+        log.info('Sniper Original: using sub-account API keys')
 
     bot = ScalperBot(
         config=cfg,
