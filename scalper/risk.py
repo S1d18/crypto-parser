@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from scalper.config import Config
+
+log = logging.getLogger(__name__)
 
 
 class TrailingStop:
@@ -38,6 +41,8 @@ class RiskManager:
         self.daily_pnl: float = 0.0
         self.pause_until: datetime | None = None
         self.last_reset_date = datetime.now().date()
+        # Per-symbol cooldown: symbol -> {'losses': int, 'until': datetime}
+        self._symbol_cooldowns: dict[str, dict] = {}
 
     def calc_position_size(self, price: float, confidence: int = 100) -> dict:
         """Returns {'qty': float, 'margin': float, 'position_value': float}
@@ -103,6 +108,29 @@ class RiskManager:
         if today != self.last_reset_date:
             self.reset_daily()
         return not self.should_pause() and not self.is_daily_limit_hit()
+
+    def record_symbol_result(self, symbol: str, won: bool) -> None:
+        """Track consecutive losses per symbol. 2 losses -> 1h cooldown."""
+        if won:
+            self._symbol_cooldowns.pop(symbol, None)
+            return
+        cd = self._symbol_cooldowns.get(symbol, {'losses': 0, 'until': None})
+        cd['losses'] = cd.get('losses', 0) + 1
+        if cd['losses'] >= 2:
+            cd['until'] = datetime.now() + timedelta(hours=1)
+            log.info('Symbol cooldown: %s blocked for 1h after %d losses',
+                     symbol, cd['losses'])
+        self._symbol_cooldowns[symbol] = cd
+
+    def is_symbol_cooled(self, symbol: str) -> bool:
+        """True if symbol is in cooldown (blocked from trading)."""
+        cd = self._symbol_cooldowns.get(symbol)
+        if not cd or not cd.get('until'):
+            return False
+        if datetime.now() >= cd['until']:
+            self._symbol_cooldowns.pop(symbol, None)
+            return False
+        return True
 
     def create_trailing_stop(self, direction: str, entry: float, sl: float) -> TrailingStop:
         return TrailingStop(direction, entry, sl)

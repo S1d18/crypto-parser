@@ -48,6 +48,9 @@ class MultiScanner:
                 if signal is None:
                     continue
 
+                if signal.confidence < 75:
+                    continue
+
                 # Optional trend filter on senior TF
                 if self._use_trend_filter:
                     senior_ohlcv = await self._exchange.fetch_ohlcv(

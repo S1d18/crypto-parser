@@ -31,6 +31,7 @@ class ScalperBot:
         self._market_data = MarketData(self._exchange)
         self._open_positions: dict[int, dict] = {}  # trade_id -> {trade, trailing}
         self._last_prices: dict[str, float] = {}    # symbol -> last known price
+        self._bybit_pnl: dict[str, dict] = {}       # symbol -> {pnl, mark_price}
         self._running = False
         self._callbacks: list = []
 
@@ -135,6 +136,8 @@ class ScalperBot:
                 break
             if opp['symbol'] in held_symbols:
                 continue
+            if self._risk.is_symbol_cooled(opp['symbol']):
+                continue
             await self._open_trade(opp)
             held_symbols.add(opp['symbol'])
             slots -= 1
@@ -152,11 +155,13 @@ class ScalperBot:
         """For each open position: fast price check + SL/TP/trailing."""
         closed_ids = []
 
-        # Fetch all prices in parallel (one request per position)
+        # Fetch prices and Bybit PnL in parallel
         price_tasks = {}
+        pnl_tasks = {}
         for trade_id, pos in self._open_positions.items():
             symbol = pos['trade']['symbol']
             price_tasks[trade_id] = self._exchange.get_price(symbol)
+            pnl_tasks[trade_id] = self._exchange.get_position_pnl(symbol)
 
         prices = {}
         for trade_id, task in price_tasks.items():
@@ -165,8 +170,20 @@ class ScalperBot:
             except Exception:
                 log.warning('Price fetch failed for #%d', trade_id)
 
+        # Cache Bybit PnL for dashboard
+        for trade_id, task in pnl_tasks.items():
+            try:
+                pnl_data = await task
+                if pnl_data:
+                    symbol = self._open_positions[trade_id]['trade']['symbol']
+                    self._bybit_pnl[symbol] = pnl_data
+            except Exception:
+                pass
+
         for trade_id, pos in self._open_positions.items():
             if trade_id not in prices:
+                continue
+            if pos.get('closing'):
                 continue
 
             trade = pos['trade']
@@ -174,23 +191,28 @@ class ScalperBot:
             price = prices[trade_id]
             self._last_prices[trade['symbol']] = price
 
-            # Update trailing stop
-            trailing.update(price)
-
             direction = trade['direction']
             entry = trade['entry_price']
             tp = trade['tp_price']
             qty = trade['qty']
 
-            # --- Безубыток: цена прошла 50% к TP → SL на вход ---
+            # Update trailing stop
+            old_sl = trailing.current_sl
+            trailing.update(price)
+            # Sync SL to exchange if it moved
+            if abs(trailing.current_sl - old_sl) > entry * 0.0001:
+                await self._exchange.update_sl(trade['symbol'], trailing.current_sl)
+
+            # --- Безубыток: цена прошла 30% к TP → SL на вход ---
             if not pos.get('breakeven_set'):
-                halfway = entry + (tp - entry) * 0.5 if direction == 'long' \
-                    else entry - (entry - tp) * 0.5
+                halfway = entry + (tp - entry) * 0.3 if direction == 'long' \
+                    else entry - (entry - tp) * 0.3
                 be_hit = (direction == 'long' and price >= halfway) or \
                          (direction == 'short' and price <= halfway)
                 if be_hit:
                     trailing.current_sl = entry
                     pos['breakeven_set'] = True
+                    await self._exchange.update_sl(trade['symbol'], entry)
                     log.info('Breakeven set for #%d %s @ %.4f (SL→entry %.4f)',
                              trade_id, trade['symbol'], price, entry)
                     self._storage.add_trade_event(
@@ -258,6 +280,7 @@ class ScalperBot:
                         old_sl = trailing.current_sl
                         trailing.current_sl = lock_price
                         if abs(lock_price - old_sl) > entry * 0.0001:
+                            await self._exchange.update_sl(trade['symbol'], lock_price)
                             log.info('Profit lock #%d %s: SL %.4f->%.4f (%.0f%% of $%.1f)',
                                      trade_id, trade['symbol'], old_sl, lock_price,
                                      lock_pct * 100, peak_pnl)
@@ -271,6 +294,7 @@ class ScalperBot:
                         old_sl = trailing.current_sl
                         trailing.current_sl = lock_price
                         if abs(lock_price - old_sl) > entry * 0.0001:
+                            await self._exchange.update_sl(trade['symbol'], lock_price)
                             log.info('Profit lock #%d %s: SL %.4f->%.4f (%.0f%% of $%.1f)',
                                      trade_id, trade['symbol'], old_sl, lock_price,
                                      lock_pct * 100, peak_pnl)
@@ -279,15 +303,23 @@ class ScalperBot:
                                 f'SL {old_sl:.4f}→{lock_price:.4f} (фикс {lock_pct*100:.0f}% от ${peak_pnl:.1f})')
 
             # --- Частичное закрытие: 30% при $5+ прибыли ---
-            if net_pnl >= 5.0 and not pos.get('partial_closed'):
-                partial_qty = qty * 0.3
+            if net_pnl >= 5.0 and not pos.get('partial_closed') and not pos.get('closing'):
                 try:
+                    live_qty = await self._exchange.get_position_contracts(trade['symbol'])
+                    if live_qty <= 0:
+                        log.warning('Partial close #%d: position already flat on exchange', trade_id)
+                        continue
+                    partial_qty = min(qty * 0.3, live_qty)
                     await self._exchange.close_position(
                         symbol=trade['symbol'], direction=direction, qty=partial_qty)
-                    partial_pnl = net_pnl * 0.3
-                    trade['qty'] = qty * 0.7
+                    partial_pnl = net_pnl * (partial_qty / qty)
+                    trade['qty'] = live_qty - partial_qty
                     pos['partial_closed'] = True
-                    pos['partial_pnl'] = partial_pnl  # запоминаем зафиксированную часть
+                    pos['partial_pnl'] = partial_pnl
+                    # Зачислить partial PnL в баланс сразу
+                    self.cfg.balance += partial_pnl
+                    self._storage.save_state('balance', str(self.cfg.balance))
+                    self._risk.record_daily_pnl(partial_pnl)
                     log.info('Partial close #%d %s: 30%% locked $%.2f, 70%% rides on',
                              trade_id, trade['symbol'], partial_pnl)
                     self._storage.add_trade_event(
@@ -312,6 +344,8 @@ class ScalperBot:
         """Market data + signal reversal — all positions in parallel."""
 
         async def check_one(trade_id, pos):
+            if pos.get('closing'):
+                return None
             trade = pos['trade']
             trailing = pos['trailing']
             direction = trade['direction']
@@ -385,19 +419,21 @@ class ScalperBot:
 
         sizing = self._risk.calc_position_size(price, confidence=signal.confidence)
 
-        # Place real order on exchange
+        # Place real order on exchange with SL/TP
         try:
             order = await self._exchange.open_position(
                 symbol=symbol,
                 direction=signal.direction,
                 qty=sizing['qty'],
                 leverage=self.cfg.leverage,
+                sl_price=signal.sl_price,
+                tp_price=signal.tp_price,
             )
             # Use actual fill price if available
             fill_price = order.get('average') or order.get('price') or price
             if fill_price:
                 price = float(fill_price)
-            # Use actual filled qty
+            # Use actual filled qty — what exchange actually gave us
             filled_qty = order.get('filled') or sizing['qty']
             if filled_qty:
                 sizing['qty'] = float(filled_qty)
@@ -461,25 +497,50 @@ class ScalperBot:
     async def _close_trade(self, trade_id: int, exit_price: float, reason: str):
         """Close trade: place close order, calc PnL, update balance, save to DB."""
         pos = self._open_positions[trade_id]
-        trade = pos['trade']
 
+        # Race condition guard — prevent double close from parallel loops
+        if pos.get('closing'):
+            log.warning('Already closing #%d, skipping duplicate %s', trade_id, reason)
+            return
+        pos['closing'] = True
+
+        trade = pos['trade']
         entry = trade['entry_price']
         qty = trade['qty']
         direction = trade['direction']
 
+        # Sync qty with exchange before closing
+        try:
+            live_qty = await self._exchange.get_position_contracts(trade['symbol'])
+            if live_qty <= 0:
+                log.warning('Close #%d %s: position already flat on exchange, '
+                            'recording as closed', trade_id, trade['symbol'])
+                # Still record in DB with estimated PnL
+                qty = trade['qty']
+            else:
+                if live_qty < qty:
+                    log.info('Close #%d: syncing qty %.6f -> %.6f (exchange)',
+                             trade_id, qty, live_qty)
+                qty = live_qty
+                trade['qty'] = qty
+        except Exception:
+            log.warning('Could not sync qty for #%d, using local', trade_id)
+
         # Place real close order on exchange
         try:
-            order = await self._exchange.close_position(
-                symbol=trade['symbol'],
-                direction=direction,
-                qty=qty,
-            )
-            # Use actual fill price
-            fill_price = order.get('average') or order.get('price')
-            if fill_price:
-                exit_price = float(fill_price)
+            if qty > 0:
+                order = await self._exchange.close_position(
+                    symbol=trade['symbol'],
+                    direction=direction,
+                    qty=qty,
+                )
+                # Use actual fill price
+                fill_price = order.get('average') or order.get('price')
+                if fill_price:
+                    exit_price = float(fill_price)
         except Exception as e:
             log.error('Failed to close #%d %s: %s', trade_id, trade['symbol'], e)
+            pos['closing'] = False
             return
 
         # Gross PnL
@@ -495,19 +556,24 @@ class ScalperBot:
 
         net_pnl = gross_pnl - total_fees
 
+        # Добавить PnL от partial close (30%) к итогу сделки
+        partial_pnl = pos.get('partial_pnl', 0)
+        total_trade_pnl = net_pnl + partial_pnl
+
         # PnL percent relative to margin
         margin = trade['margin']
-        pnl_pct = (net_pnl / margin * 100) if margin > 0 else 0.0
+        pnl_pct = (total_trade_pnl / margin * 100) if margin > 0 else 0.0
 
-        # Update balance
+        # Update balance (partial уже зачислен, добавляем только остаток)
         self.cfg.balance += net_pnl
 
-        # Record in risk manager
+        # Record in risk manager (итого по сделке для статистики)
         self._risk.record_daily_pnl(net_pnl)
-        if net_pnl >= 0:
+        if total_trade_pnl >= 0:
             self._risk.record_win()
         else:
             self._risk.record_loss()
+        self._risk.record_symbol_result(trade['symbol'], total_trade_pnl >= 0)
 
         # Analytics
         peak_pnl = pos.get(f'peak_pnl_{trade_id}', 0)
@@ -521,13 +587,13 @@ class ScalperBot:
                 time_held = int((dt.now() - opened_dt).total_seconds())
             except Exception:
                 pass
-        missed = round(peak_pnl - net_pnl, 2) if peak_pnl > net_pnl else 0
+        missed = round(peak_pnl - total_trade_pnl, 2) if peak_pnl > total_trade_pnl else 0
 
-        # Save to DB
+        # Save to DB (total_trade_pnl = partial + remaining)
         self._storage.close_trade(
             trade_id=trade_id,
             exit_price=exit_price,
-            pnl=net_pnl,
+            pnl=total_trade_pnl,
             pnl_pct=pnl_pct,
             close_reason=reason,
             peak_pnl=peak_pnl,
@@ -540,21 +606,23 @@ class ScalperBot:
         self._storage.save_state('balance', str(self.cfg.balance))
 
         log.info(
-            'Closed #%d %s | %s | PnL=$%.2f (%.1f%%) | peak=$%.2f missed=$%.2f | held=%dm',
-            trade_id, trade['symbol'], reason, net_pnl, pnl_pct,
+            'Closed #%d %s | %s | PnL=$%.2f (%.1f%%)%s | peak=$%.2f missed=$%.2f | held=%dm',
+            trade_id, trade['symbol'], reason, total_trade_pnl, pnl_pct,
+            f' (partial=${partial_pnl:.2f})' if partial_pnl else '',
             peak_pnl, missed, time_held // 60,
         )
         self._notify('trade_closed', {
             'trade_id': trade_id,
             'symbol': trade['symbol'],
             'direction': direction,
-            'pnl': net_pnl,
+            'pnl': total_trade_pnl,
             'pnl_pct': pnl_pct,
             'reason': reason,
         })
         self._storage.add_trade_event(
             trade_id, 'closed', exit_price,
-            f'Причина: {reason} | PnL: ${net_pnl:.2f} ({pnl_pct:.1f}%)')
+            f'Причина: {reason} | PnL: ${total_trade_pnl:.2f} ({pnl_pct:.1f}%)'
+            + (f' (partial=${partial_pnl:.2f})' if partial_pnl else ''))
 
     # ------------------------------------------------------------------
     # Main loop
@@ -638,13 +706,17 @@ class ScalperBot:
 
             current_price = self._last_prices.get(symbol, entry)
 
-            # Unrealized PnL
-            if direction == 'long':
-                pnl_gross = (current_price - entry) * qty
+            # Unrealized PnL — use Bybit data if available
+            bybit_data = self._bybit_pnl.get(symbol)
+            if bybit_data:
+                pnl = bybit_data['unrealized_pnl']
+                current_price = bybit_data['mark_price'] or current_price
             else:
-                pnl_gross = (entry - current_price) * qty
-            fees = (entry * qty + current_price * qty) * self.cfg.taker_fee
-            pnl = pnl_gross - fees
+                if direction == 'long':
+                    pnl = (current_price - entry) * qty
+                else:
+                    pnl = (entry - current_price) * qty
+                pnl -= (entry * qty + current_price * qty) * self.cfg.taker_fee
             pnl_pct = (pnl / margin * 100) if margin > 0 else 0.0
             total_unrealized += pnl
 
